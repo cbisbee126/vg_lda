@@ -1,0 +1,17 @@
+## System and setting files that are annoying to commit and will be different on Colin vs. Viktor's computer
+
+.venv/
+venv/
+.venv/
+renv/
+/.Rprofile
+
+## That's stuff we should be sharing via a Cloud service, in our case Box
+/data/
+results/
+
+## for use locally (Viktor)
+/PROJECT_STATUS.md
+
+## Leaving this one out as it was not used up until now:
+src/
