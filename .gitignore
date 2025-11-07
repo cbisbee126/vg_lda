@@ -8,6 +8,7 @@ renv/
 
 ## That's stuff we should be sharing via a Cloud service, in our case Box
 /data/
+output/
 results/
 
 ## for use locally (Viktor)
