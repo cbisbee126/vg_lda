@@ -1,5 +1,8 @@
 ## System and setting files that are annoying to commit and will be different on Colin vs. Viktor's computer
 
+## Mac specific:
+.DS_Store
+
 .venv/
 venv/
 .venv/
@@ -10,8 +13,12 @@ renv/
 /data/
 output/
 results/
+## Just in case long running scripts break:
+logs/
 
 ## for use locally (Viktor)
+_archive/
+_prediscssion/
 /PROJECT_STATUS.md
 
 ## Leaving this one out as it was not used up until now:
