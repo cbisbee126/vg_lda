@@ -1,25 +1,33 @@
-## System and setting files that are annoying to commit and will be different on Colin vs. Viktor's computer
-
-## Mac specific:
+## System and setting files (differ across Colin vs Viktor machines)
 .DS_Store
 
+
+## Environments (never commit; rebuild from lockfiles)
 .venv/
 venv/
-.venv/
 renv/
 /.Rprofile
 
-## That's stuff we should be sharing via a Cloud service, in our case Box
+## Python artifacts
+__pycache__/
+*.pyc
+.env
+
+## Data and large outputs - shared via Box, not git
 /data/
 output/
 results/
-## Just in case long running scripts break:
+
+## Transient run logs (long-running scripts)
 logs/
 
-## for use locally (Viktor)
+## Local-only personal dirs and trackers
 _archive/
 _prediscssion/
+_inbox/
+_drafts/
+_logs/
+_context/
 /PROJECT_STATUS.md
-
-## Leaving this one out as it was not used up until now:
-src/
+/PROJECT_LOG.md
+/TODO.md
