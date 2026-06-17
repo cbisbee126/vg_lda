@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 # Add project root to path for src imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import os, re, glob, json, random
 from collections import Counter
@@ -46,7 +46,7 @@ def main():
 
     # Config
     INPUT_ROOTS = [os.path.join("data", "raw")]
-    OUTPUT_DIR = os.path.join("data", "final")
+    OUTPUT_DIR = os.path.join("data", "derived")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     GLOB_PATTERNS = {

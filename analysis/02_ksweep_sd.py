@@ -54,8 +54,10 @@ def train_eval_k(k, train_corpus, test_corpus, train_texts, dictionary, config):
 
 def main():
     # Config
-    INPUT_FILE = os.path.join("data", "final", "Filtered_Combined_SD_Cleaned.parquet")
-    OUT_DIR = os.path.join("data", "final")
+    INPUT_FILE = os.path.join("data", "derived", "Filtered_Combined_SD_Cleaned.parquet")
+    OUT_DIR = os.path.join("data", "derived")
+    TABLES_DIR = os.path.join("output", "tables")
+    FIGURES_DIR = os.path.join("output", "figures")
     DICT_PATH = os.path.join(OUT_DIR, "lda_dictionary_SD.dict")
     SPLIT_JSON = os.path.join(OUT_DIR, "lda_split_SD_stratified.json")
 
@@ -74,10 +76,12 @@ def main():
     print(f"   Workers per model: {WORKERS} (sequential K training)")
     print(f"   K range: {K_GRID[0]} to {K_GRID[-1]} (step {K_GRID[1]-K_GRID[0]}, n={len(K_GRID)})")
 
-    RESULTS_CSV = os.path.join(OUT_DIR, "lda_k_selection_SD_metrics_5_50.csv")
-    PLOT_COMBINED = os.path.join(OUT_DIR, "lda_k_sweep_SD_5_50.png")
+    RESULTS_CSV = os.path.join(TABLES_DIR, "lda_k_selection_SD_metrics_5_50.csv")
+    PLOT_COMBINED = os.path.join(FIGURES_DIR, "lda_k_sweep_SD_5_50.png")
 
     os.makedirs(OUT_DIR, exist_ok=True)
+    os.makedirs(TABLES_DIR, exist_ok=True)
+    os.makedirs(FIGURES_DIR, exist_ok=True)
 
     # Load data
     print("\n[LOADING] Loading data/dictionary...")
@@ -153,7 +157,7 @@ def main():
             dt.to_csv(path, index=False)
         return dt
 
-    topics_csv = os.path.join(OUT_DIR, f"best_topics_SD_k{best_k}.csv")
+    topics_csv = os.path.join(TABLES_DIR, f"best_topics_SD_k{best_k}.csv")
     dump_topics(best_model, topn=20, path=topics_csv)
     print(f"[SAVED] Topic top-terms saved -> {topics_csv}")
 

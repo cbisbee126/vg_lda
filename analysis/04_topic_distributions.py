@@ -12,14 +12,16 @@ from gensim.models.ldamulticore import LdaMulticore
 
 def main():
     # Paths
-    OUT_DIR = os.path.join("data", "final")
-    RESULTS_DIR = os.path.join("results", "all_games")
+    OUT_DIR = os.path.join("data", "derived")
+    TABLES_DIR = os.path.join("output", "tables")
+    FIGURES_DIR = os.path.join("output", "figures")
 
     INPUT_FILE = os.path.join(OUT_DIR, "Filtered_Combined_AllGames_Cleaned.parquet")
     DICT_PATH = os.path.join(OUT_DIR, "lda_dictionary_AllGames.dict")
     MODEL_PATH = os.path.join(OUT_DIR, "best_lda_model_AllGames_k7.model")
 
-    os.makedirs(RESULTS_DIR, exist_ok=True)
+    os.makedirs(TABLES_DIR, exist_ok=True)
+    os.makedirs(FIGURES_DIR, exist_ok=True)
 
     # Load data
     print("[LOADING] Loading data, dictionary, and model...")
@@ -55,7 +57,7 @@ def main():
         })
 
     doc_topics_df = pd.DataFrame(doc_topics)
-    doc_topics_path = os.path.join(RESULTS_DIR, "document_topic_distributions.csv")
+    doc_topics_path = os.path.join(TABLES_DIR, "document_topic_distributions.csv")
     doc_topics_df.to_csv(doc_topics_path, index=False)
     print(f"[SAVED] Saved per-document distributions -> {doc_topics_path}")
 
@@ -66,7 +68,7 @@ def main():
 
     # Method 1: Average topic probabilities per game
     game_topic_avg = doc_topics_df.groupby('game')[[f'topic_{t}' for t in range(model.num_topics)]].mean()
-    game_topic_avg_path = os.path.join(RESULTS_DIR, "game_topic_prevalence_avg.csv")
+    game_topic_avg_path = os.path.join(TABLES_DIR, "game_topic_prevalence_avg.csv")
     game_topic_avg.to_csv(game_topic_avg_path)
     print(f"[SAVED] Saved per-game topic averages -> {game_topic_avg_path}")
 
@@ -87,7 +89,7 @@ def main():
             })
 
     game_dominant_df = pd.DataFrame(game_dominant_rows)
-    game_dominant_path = os.path.join(RESULTS_DIR, "game_topic_prevalence_dominant.csv")
+    game_dominant_path = os.path.join(TABLES_DIR, "game_topic_prevalence_dominant.csv")
     game_dominant_df.to_csv(game_dominant_path, index=False)
     print(f"[SAVED] Saved per-game dominant topic counts -> {game_dominant_path}")
 
@@ -110,7 +112,7 @@ def main():
         })
 
     topic_summary_df = pd.DataFrame(topic_summaries)
-    summary_path = os.path.join(RESULTS_DIR, "topic_summary.csv")
+    summary_path = os.path.join(TABLES_DIR, "topic_summary.csv")
     topic_summary_df.to_csv(summary_path, index=False)
     print(f"[SAVED] Saved topic summary -> {summary_path}")
 
@@ -129,7 +131,7 @@ def main():
     plt.ylabel('Topic')
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
-    heatmap_path = os.path.join(RESULTS_DIR, "game_topic_heatmap.png")
+    heatmap_path = os.path.join(FIGURES_DIR, "game_topic_heatmap.png")
     plt.savefig(heatmap_path, dpi=150)
     plt.close()
     print(f"[SAVED] Saved heatmap -> {heatmap_path}")
@@ -145,7 +147,7 @@ def main():
     plt.xticks(range(model.num_topics))
     plt.grid(axis='y', alpha=0.3)
     plt.tight_layout()
-    bar_path = os.path.join(RESULTS_DIR, "topic_distribution_bar.png")
+    bar_path = os.path.join(FIGURES_DIR, "topic_distribution_bar.png")
     plt.savefig(bar_path, dpi=150)
     plt.close()
     print(f"[SAVED] Saved bar chart -> {bar_path}")
@@ -163,7 +165,7 @@ def main():
     ax.legend(title='Topic', bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
-    stacked_path = os.path.join(RESULTS_DIR, "game_topic_stacked.png")
+    stacked_path = os.path.join(FIGURES_DIR, "game_topic_stacked.png")
     plt.savefig(stacked_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"[SAVED] Saved stacked bar chart -> {stacked_path}")

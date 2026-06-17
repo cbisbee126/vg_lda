@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from gensim.models import LdaMulticore
 from src.topic_formatting import (
@@ -25,7 +25,7 @@ from src.topic_formatting import (
 # ============================================================================
 
 # Model input
-MODEL_PATH = "data/final/best_lda_model_SD_k3.model"
+MODEL_PATH = "data/derived/best_lda_model_SD_k3.model"
 
 # Table parameters
 NUM_KEYWORDS = 10           # Number of top keywords to display per topic
@@ -42,8 +42,8 @@ MANUAL_LABELS = [
 ]
 
 # Output files
-OUTPUT_MARKDOWN = "data/final/topic_table_SD_k3.md"
-OUTPUT_CSV = "data/final/topic_table_SD_k3.csv"
+OUTPUT_MARKDOWN = "output/tables/topic_table_SD_k3.md"
+OUTPUT_CSV = "output/tables/topic_table_SD_k3.csv"
 OUTPUT_LATEX = None  # Set to path string to generate LaTeX, or None to skip
 
 # Display options

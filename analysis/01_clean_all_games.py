@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 # Add project root to path for src imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import os, re, glob, json, pickle, random
 from collections import Counter, defaultdict
@@ -35,7 +35,7 @@ from src.stopwords import get_stopwords
 INPUT_ROOTS = [
     os.path.join("data", "raw")
 ]
-OUT_DIR = os.path.join("data", "final")
+OUT_DIR = os.path.join("data", "derived")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 GLOB_PATTERNS = {
