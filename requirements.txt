@@ -1,0 +1,14 @@
+# Pinned from the working Nov 2025 env (Python 3.12).
+# Rebuild with uv (never brew/system python):  uv venv && uv pip install -r requirements.txt
+# NLTK data: python -c "import nltk; [nltk.download(p) for p in ('stopwords','punkt','wordnet','averaged_perceptron_tagger_eng')]"
+pandas==2.3.3
+numpy==2.3.4
+scipy==1.16.3
+nltk==3.9.2
+gensim==4.4.0
+pyarrow==22.0.0
+fastparquet==2024.11.0
+matplotlib==3.10.7
+seaborn==0.13.2
+scikit-learn==1.7.2
+jupyter==1.1.1
