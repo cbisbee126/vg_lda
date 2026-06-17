@@ -76,3 +76,31 @@ Will contain general utilities:
 - `load_dictionary()` - Dictionary loading helper
 - `save_results()` - Results saving
 - `format_topics()` - Topic formatting
+
+
+## Design Philosophy
+
+**DRY (Don't Repeat Yourself)**: Extract common code patterns into reusable functions.
+
+**Backward Compatibility**: Refactoring should not break existing scripts. Keep parameter names and behavior consistent.
+
+**Documentation**: All functions should have docstrings with parameters, returns, and examples.
+
+**Testing**: Consider adding unit tests in `tests/` directory as modules grow.
+
+## Refactoring Checklist
+
+When extracting functions to src/:
+1. Identify duplicate code across scripts
+2. Extract to appropriate module (preprocessing, modeling, viz, utils)
+3. Add comprehensive docstring
+4. Update all scripts to import from src/
+5. Test that scripts still work
+6. Update documentation (README, PREPROCESSING_SUMMARY.md)
+
+## Future Enhancements
+
+- Add type hints for better IDE support
+- Create `tests/` directory with unit tests
+- Add configuration management (`src/config.py`)
+- Consider adding logging utilities (`src/logging_utils.py`)

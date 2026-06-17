@@ -45,4 +45,4 @@ python cleaning/run_fp_cleaning.py
 python k_selection/run_fp_k_sweep.py
 python analysis/generate_topic_distributions.py
 ```
-
+See `../PROJECT_STATUS.md` for detailed instructions.
