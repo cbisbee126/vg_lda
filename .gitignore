@@ -13,6 +13,16 @@ __pycache__/
 *.pyc
 .env
 
+## R / renv artifacts (renv.lock + renv/activate.R stay committed)
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+renv/library/
+renv/local/
+renv/cellar/
+renv/staging/
+
 ## Data and large outputs - shared via Box, not git
 /data/
 output/
