@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Generate Formatted Topic Table - FP (First-Person/Competitive) Analysis
+Generate Formatted Topic Table - All Games Analysis
 
+Creates publication-ready topic tables from the best LDA model.
 Outputs markdown, CSV, and optionally LaTeX formats.
 """
 
@@ -9,7 +10,7 @@ import sys
 from pathlib import Path
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from gensim.models import LdaMulticore
 from src.topic_formatting import (
@@ -25,26 +26,32 @@ from src.topic_formatting import (
 # ============================================================================
 
 # Model input
-MODEL_PATH = "data/derived/best_lda_model_FP_k4.model"
+MODEL_PATH = "data/derived/best_lda_model_AllGames_k5.model"
 
 # Table parameters
 NUM_KEYWORDS = 10           # Number of top keywords to display per topic
-DECIMAL_PLACES = 4          # Number of decimal places for probabilities (e.g., 0.0179)
-AUTO_LABELS = True          # Set to True to auto-generate labels from top words
+DECIMAL_PLACES = 4          # Number of decimal places for probabilities (e.g., 0.0076)
+AUTO_LABELS = False         # Set to True to auto-generate labels from top words
 NUM_LABEL_WORDS = 3         # If AUTO_LABELS=True, how many words to use for label
 
 # Manual labels (used if AUTO_LABELS=False)
 # Edit these to provide interpretive labels for each topic
 MANUAL_LABELS = [
-    "Topic 0",
-    "Topic 1",
-    "Topic 2",
-    "Topic 3"
+    "Combat & progression mechanics",
+    "Story characters / RDR2 narrative",
+    "Action combat / movement",
+    "Audio / music / media",
+    "Creator engagement / community",
+    "Meta / cosmetics / platforms",
+    "Competitive mechanics / teamplay",
+    "Ranked competitive / toxicity",
+    "Appreciation / viewer positivity",
+    "Shooter tactics / combat"
 ]
 
 # Output files
-OUTPUT_MARKDOWN = "output/tables/topic_table_FP_k4.md"
-OUTPUT_CSV = "output/tables/topic_table_FP_k4.csv"
+OUTPUT_MARKDOWN = "output/tables/topic_table_AllGames_k5.md"
+OUTPUT_CSV = "output/tables/topic_table_AllGames_k5.csv"
 OUTPUT_LATEX = None  # Set to path string to generate LaTeX, or None to skip
 
 # Display options
@@ -83,7 +90,7 @@ if __name__ == '__main__':
 
     if PRINT_TO_CONSOLE:
         print("\n" + "="*80)
-        print("TOPIC TABLE - FP COMPETITIVE GAMES (K=5)")
+        print("TOPIC TABLE - ALL GAMES (K=10)")
         print("="*80 + "\n")
         print(markdown_table)
         print("\n")
@@ -91,7 +98,7 @@ if __name__ == '__main__':
     # Save markdown
     if OUTPUT_MARKDOWN:
         with open(OUTPUT_MARKDOWN, 'w', encoding='utf-8') as f:
-            f.write(f"# Topic Table - FP (First-Person/Competitive) (K={model.num_topics})\n\n")
+            f.write(f"# Topic Table - All Games Combined (K={model.num_topics})\n\n")
             f.write(markdown_table)
             f.write(f"\n\n**Model**: `{MODEL_PATH}`\n")
             f.write(f"**Keywords per topic**: {NUM_KEYWORDS}\n")
