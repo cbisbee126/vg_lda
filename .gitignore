@@ -1,7 +1,6 @@
 ## System and setting files (differ across Colin vs Viktor machines)
 .DS_Store
 
-
 ## Environments (never commit; rebuild from lockfiles)
 .venv/
 venv/
