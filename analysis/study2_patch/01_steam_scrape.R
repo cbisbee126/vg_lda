@@ -39,9 +39,10 @@ cat("✅ Packages ready\n")
 # 1) PARAMETERS
 # ============================================================
 
-dir.create("data_raw", showWarnings = FALSE, recursive = TRUE)
-dir.create("data_processed", showWarnings = FALSE, recursive = TRUE)
-dir.create("results", showWarnings = FALSE, recursive = TRUE)
+dir.create("data/raw/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create("data/interim/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/tables/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/figures/study2", showWarnings = FALSE, recursive = TRUE)
 
 games <- tibble::tibble(
   game = c(
@@ -629,60 +630,60 @@ print(excluded_sample, n = 80)
 # Full master annotated announcement file
 readr::write_csv(
   all_news,
-  "data_raw/all_games_news_annotated.csv"
+  "data/raw/study2/all_games_news_annotated.csv"
 )
 
 readr::write_csv(
   all_news,
-  "data_processed/all_games_news_annotated.csv"
+  "data/interim/study2/all_games_news_annotated.csv"
 )
 
 # Broad update file
 readr::write_csv(
   broad_updates,
-  "data_raw/all_games_broad_updates.csv"
+  "data/raw/study2/all_games_broad_updates.csv"
 )
 
 readr::write_csv(
   broad_updates,
-  "data_processed/all_games_broad_updates.csv"
+  "data/interim/study2/all_games_broad_updates.csv"
 )
 
 # Strict update file
 readr::write_csv(
   strict_updates,
-  "data_raw/all_games_strict_updates.csv"
+  "data/raw/study2/all_games_strict_updates.csv"
 )
 
 readr::write_csv(
   strict_updates,
-  "data_processed/all_games_strict_updates.csv"
+  "data/interim/study2/all_games_strict_updates.csv"
 )
 
 # Diagnostics
 readr::write_csv(
   flag_summary,
-  "results/step1_flag_summary_by_game.csv"
+  "output/tables/study2/step1_flag_summary_by_game.csv"
 )
 
 readr::write_csv(
   category_summary,
-  "results/step1_announcement_category_summary.csv"
+  "output/tables/study2/step1_announcement_category_summary.csv"
 )
 
 readr::write_csv(
   strict_sample,
-  "results/step1_sample_strict_update_titles.csv"
+  "output/tables/study2/step1_sample_strict_update_titles.csv"
 )
 
 readr::write_csv(
   broad_not_strict_sample,
-  "results/step1_sample_broad_not_strict_titles.csv"
+  "output/tables/study2/step1_sample_broad_not_strict_titles.csv"
 )
 
 readr::write_csv(
   excluded_sample,
-  "results/step1_sample_excluded_titles.csv"
+  "output/tables/study2/step1_sample_excluded_titles.csv"
 )
 
 # ============================================================

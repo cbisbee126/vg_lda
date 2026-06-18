@@ -3,7 +3,8 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 
-dir.create("results", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/tables/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/figures/study2", showWarnings = FALSE, recursive = TRUE)
 
 # ============================================================
 # 1) LOAD STUDY 2 (DEVELOPER) DATA
@@ -13,7 +14,7 @@ dir.create("results", showWarnings = FALSE, recursive = TRUE)
 # ============================================================
 
 patch_levers <- read_csv(
-  "data_processed/patch_levers.csv",
+  "data/interim/study2/patch_levers.csv",
   show_col_types = FALSE
 )
 
@@ -143,10 +144,10 @@ print(p)
 # 7) SAVE
 # ============================================================
 
-write_csv(comparison_table, "results/comparison_table.csv")
+write_csv(comparison_table, "output/tables/study2/comparison_table.csv")
 
 ggsave(
-  filename = "results/comparison_chart.png",
+  filename = "output/figures/study2/comparison_chart.png",
   plot = p,
   width = 9,
   height = 6,

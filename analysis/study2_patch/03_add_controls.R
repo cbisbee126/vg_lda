@@ -13,15 +13,16 @@ library(lubridate)
 library(readr)
 library(stringr)
 
-dir.create("data_processed", showWarnings = FALSE, recursive = TRUE)
-dir.create("results", showWarnings = FALSE, recursive = TRUE)
+dir.create("data/interim/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/tables/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/figures/study2", showWarnings = FALSE, recursive = TRUE)
 
 # ============================================================
 # 1) LOAD DATA
 # ============================================================
 
 patch_features <- read_csv(
-  "data_processed/patch_levers_sentence.csv",
+  "data/interim/study2/patch_levers_sentence.csv",
   show_col_types = FALSE
 ) %>%
   mutate(
@@ -241,27 +242,27 @@ print(sample_season_patches, n = 60)
 
 write_csv(
   patch_features,
-  "data_processed/patch_levers_with_controls.csv"
+  "data/interim/study2/patch_levers_with_controls.csv"
 )
 
 write_csv(
   season_check,
-  "results/step3_new_season_check.csv"
+  "output/tables/study2/step3_new_season_check.csv"
 )
 
 write_csv(
   release_time_check,
-  "results/step3_release_time_check.csv"
+  "output/tables/study2/step3_release_time_check.csv"
 )
 
 write_csv(
   length_check,
-  "results/step3_length_check.csv"
+  "output/tables/study2/step3_length_check.csv"
 )
 
 write_csv(
   sample_season_patches,
-  "results/step3_sample_season_patches.csv"
+  "output/tables/study2/step3_sample_season_patches.csv"
 )
 
 cat("\n✅ DONE — Controls added to sentence-level lever dataset\n")

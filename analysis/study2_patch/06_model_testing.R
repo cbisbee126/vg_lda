@@ -31,7 +31,8 @@ library(lmerTest)
 library(broom.mixed)
 library(performance)
 
-dir.create("results", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/tables/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/figures/study2", showWarnings = FALSE, recursive = TRUE)
 
 # ============================================================
 # 0) HELPERS
@@ -55,7 +56,7 @@ sig_stars <- function(p) {
 # ============================================================
 
 df <- read_csv(
-  "data_processed/final_patch_dataset.csv",
+  "data/interim/study2/final_patch_dataset.csv",
   show_col_types = FALSE
 ) %>%
   mutate(
@@ -220,7 +221,7 @@ lever_cor_out <- as.data.frame(lever_cor) %>%
 
 write_csv(
   lever_cor_out,
-  "results/study2_lever_correlations.csv"
+  "output/tables/study2/study2_lever_correlations.csv"
 )
 
 # ============================================================
@@ -475,25 +476,25 @@ fit_compare <- map2_dfr(
 
 write_csv(
   results_all,
-  "results/study2_hlm_models_results_full.csv",
+  "output/tables/study2/study2_hlm_models_results_full.csv",
   na = ""
 )
 
 write_csv(
   clean_results,
-  "results/study2_hlm_models_clean_results.csv",
+  "output/tables/study2/study2_hlm_models_clean_results.csv",
   na = ""
 )
 
 write_csv(
   clean_results_wide,
-  "results/study2_hlm_models_clean_results_wide.csv",
+  "output/tables/study2/study2_hlm_models_clean_results_wide.csv",
   na = ""
 )
 
 write_csv(
   fit_compare,
-  "results/study2_hlm_models_fit.csv",
+  "output/tables/study2/study2_hlm_models_fit.csv",
   na = ""
 )
 

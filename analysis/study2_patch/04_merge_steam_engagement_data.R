@@ -9,8 +9,9 @@ library(tidyverse)
 library(lubridate)
 library(readr)
 
-dir.create("data_processed", showWarnings = FALSE, recursive = TRUE)
-dir.create("results", showWarnings = FALSE, recursive = TRUE)
+dir.create("data/interim/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/tables/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/figures/study2", showWarnings = FALSE, recursive = TRUE)
 
 # ============================================================
 # HELPER: SAFE DATETIME PARSER
@@ -113,7 +114,7 @@ get_window_stats <- function(game_i, date_i, start_offset, end_offset, steam_dai
 # ============================================================
 
 patch_data <- read_csv(
-  "data_processed/patch_levers_with_controls.csv",
+  "data/interim/study2/patch_levers_with_controls.csv",
   show_col_types = FALSE
 ) %>%
   mutate(
@@ -129,42 +130,42 @@ cat("🎮 Unique games:", n_distinct(patch_data$game), "\n")
 # ============================================================
 
 apex <- load_steam_file(
-  "data_raw/apex_steam_data.csv",
+  "data/raw/study2/apex_steam_data.csv",
   "Apex Legends"
 )
 
 marvel <- load_steam_file(
-  "data_raw/marvel_steam_data.csv",
+  "data/raw/study2/marvel_steam_data.csv",
   "Marvel Rivals"
 )
 
 overwatch <- load_steam_file(
-  "data_raw/overwatch_steam_data.csv",
+  "data/raw/study2/overwatch_steam_data.csv",
   "Overwatch 2"
 )
 
 brawlhalla <- load_steam_file(
-  "data_raw/brawlhalla_steam_data.csv",
+  "data/raw/study2/brawlhalla_steam_data.csv",
   "Brawlhalla"
 )
 
 finals <- load_steam_file(
-  "data_raw/the_finals_steam_data.csv",
+  "data/raw/study2/the_finals_steam_data.csv",
   "THE FINALS"
 )
 
 war_thunder <- load_steam_file(
-  "data_raw/war_thunder_steam_data.csv",
+  "data/raw/study2/war_thunder_steam_data.csv",
   "War Thunder"
 )
 
 pubg <- load_steam_file(
-  "data_raw/pubg_steam_data.csv",
+  "data/raw/study2/pubg_steam_data.csv",
   "PUBG: BATTLEGROUNDS"
 )
 
 counter_strike <- load_steam_file(
-  "data_raw/counter_strike_steam_data.csv",
+  "data/raw/study2/counter_strike_steam_data.csv",
   "Counter-Strike 2"
 )
 
@@ -775,52 +776,52 @@ print(final_game_check, n = Inf)
 
 write_csv(
   final_data,
-  "data_processed/final_patch_dataset.csv"
+  "data/interim/study2/final_patch_dataset.csv"
 )
 
 write_csv(
   steam_daily,
-  "data_processed/steam_daily_engagement.csv"
+  "data/interim/study2/steam_daily_engagement.csv"
 )
 
 write_csv(
   patch_daily,
-  "data_processed/patch_daily_features.csv"
+  "data/interim/study2/patch_daily_features.csv"
 )
 
 write_csv(
   outcome_windows,
-  "data_processed/patch_engagement_outcomes.csv"
+  "data/interim/study2/patch_engagement_outcomes.csv"
 )
 
 write_csv(
   merge_check,
-  "results/step4_merge_check.csv"
+  "output/tables/study2/step4_merge_check.csv"
 )
 
 write_csv(
   window_check,
-  "results/step4_window_check.csv"
+  "output/tables/study2/step4_window_check.csv"
 )
 
 write_csv(
   outcome_check,
-  "results/step4_outcome_check.csv"
+  "output/tables/study2/step4_outcome_check.csv"
 )
 
 write_csv(
   outcome_game_check,
-  "results/step4_outcome_game_check.csv"
+  "output/tables/study2/step4_outcome_game_check.csv"
 )
 
 write_csv(
   final_check,
-  "results/step4_final_check.csv"
+  "output/tables/study2/step4_final_check.csv"
 )
 
 write_csv(
   final_game_check,
-  "results/step4_final_rows_by_game.csv"
+  "output/tables/study2/step4_final_rows_by_game.csv"
 )
 
 cat("\n✅ DONE — FINAL DATASET READY FOR MODELING\n")

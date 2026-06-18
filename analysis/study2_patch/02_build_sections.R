@@ -13,15 +13,16 @@ library(stringr)
 library(readr)
 library(lubridate)
 
-dir.create("data_processed", showWarnings = FALSE, recursive = TRUE)
-dir.create("results", showWarnings = FALSE, recursive = TRUE)
+dir.create("data/interim/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/tables/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/figures/study2", showWarnings = FALSE, recursive = TRUE)
 
 # ============================================================
 # 1) LOAD DATA
 # ============================================================
 
 patches <- read_csv(
-  "data_processed/all_games_strict_updates.csv",
+  "data/interim/study2/all_games_strict_updates.csv",
   show_col_types = FALSE
 ) %>%
   mutate(
@@ -435,21 +436,21 @@ patch_levers_sentence %>%
 # 8) SAVE
 # ============================================================
 
-write_csv(sentences, "data_processed/patch_sentences.csv")
+write_csv(sentences, "data/interim/study2/patch_sentences.csv")
 
 write_csv(
   patch_levers_sentence,
-  "data_processed/patch_levers_sentence.csv"
+  "data/interim/study2/patch_levers_sentence.csv"
 )
 
 write_csv(
   game_check,
-  "results/step2_sentence_game_check.csv"
+  "output/tables/study2/step2_sentence_game_check.csv"
 )
 
 write_csv(
   overlap_check,
-  "results/step2_sentence_overlap_check.csv"
+  "output/tables/study2/step2_sentence_overlap_check.csv"
 )
 
 cat("\n✅ DONE — Sentence-level progression lever dataset created\n")
