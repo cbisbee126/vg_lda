@@ -1,0 +1,57 @@
+# =========================
+# DATA FILES (LARGE)
+# =========================
+
+# Ignore ALL CSV files
+*.csv
+
+# But allow small/example CSVs if needed
+!example_*.csv
+!sample_*.csv
+
+# =========================
+# PROJECT DATA FOLDERS
+# =========================
+
+# Raw and processed data (large)
+data_raw/
+data_processed/
+
+# Keep folder structure (important!)
+!data_raw/.gitkeep
+!data_processed/.gitkeep
+
+# =========================
+# OUTPUTS / RESULTS
+# =========================
+
+results/
+plots/
+figures/
+
+# Optional: keep empty folders
+!results/.gitkeep
+
+# =========================
+# R / RSTUDIO
+# =========================
+
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+
+# =========================
+# SYSTEM FILES
+# =========================
+
+.DS_Store
+Thumbs.db
+
+# =========================
+# LOGS / TEMP FILES
+# =========================
+
+*.log
+*.tmp
+*.bak
