@@ -1,4 +1,4 @@
-# analysis/ - numbered LDA pipeline
+# analysis/study1_lda/ - Study 1 LDA pipeline (Python)
 
 Run in order from the repo root (paths are relative to root). Each step reuses the
 importable modules in `src/`. The three corpora (All Games, FP/competitive, SD/story-driven)
@@ -21,9 +21,9 @@ share the same stages.
 
 ```bash
 # from the repo root, with the uv .venv active
-python analysis/01_clean_fp.py
-python analysis/02_ksweep_fp.py
-python analysis/03_topic_table_fp.py
+python analysis/study1_lda/01_clean_fp.py
+python analysis/study1_lda/02_ksweep_fp.py
+python analysis/study1_lda/03_topic_table_fp.py
 ```
 
 ## Notes
