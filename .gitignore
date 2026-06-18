@@ -27,10 +27,8 @@ renv/staging/
 output/
 results/
 
-## Transient run logs (long-running scripts)
-logs/
-
-## Local-only personal dirs and trackers
+## Local-only personal dirs and trackers (underscore-prefixed -> also auto-ignored by Quarto)
+## (_logs/ holds the decision journal and any transient run logs)
 _archive/
 _prediscssion/
 _inbox/
