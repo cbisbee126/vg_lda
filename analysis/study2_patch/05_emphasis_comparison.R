@@ -14,7 +14,7 @@ dir.create("output/figures/study2", showWarnings = FALSE, recursive = TRUE)
 # ============================================================
 
 patch_levers <- read_csv(
-  "data/interim/study2/patch_levers.csv",
+  "data/interim/study2/patch_levers_with_controls.csv",
   show_col_types = FALSE
 )
 
@@ -127,7 +127,7 @@ p <- ggplot(df_long, aes(x = lever, y = Weight, fill = Group)) +
   labs(
     title = "Consumer vs Developer Emphasis on F2P Levers",
     x = "F2P Design Lever",
-    y = "Normalized Weight",
+    y = "Normalized Relative Emphasis",
     fill = NULL
   ) +
   theme_minimal() +

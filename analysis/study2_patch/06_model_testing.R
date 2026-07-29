@@ -7,7 +7,8 @@
 # player engagement lift and retention.
 #
 # Data structure:
-# - Each row is one strict Steam update / patch note.
+# - Each row is one game-day containing at least one strict
+#   Steam update / patch note.
 # - Updates are nested within games.
 # - Models use random intercepts for game.
 #
@@ -19,6 +20,10 @@
 # Models:
 # - Model 1: Main Linear HLM
 # - Model 2: Exploratory Quadratic HLM
+#
+# Text-length controls:
+# - Overall patch-note length
+# - Average retained sentence length
 # ============================================================
 
 rm(list = ls())
@@ -31,24 +36,24 @@ library(lmerTest)
 library(broom.mixed)
 library(performance)
 
-dir.create("output/tables/study2", showWarnings = FALSE, recursive = TRUE)
-dir.create("output/figures/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create(
+  "output/tables/study2",
+  showWarnings = FALSE,
+  recursive = TRUE
+)
+
+dir.create(
+  "output/figures/study2",
+  showWarnings = FALSE,
+  recursive = TRUE
+)
 
 # ============================================================
 # 0) HELPERS
 # ============================================================
 
-scale2 <- function(x) as.numeric(scale(x))
-
-sig_stars <- function(p) {
-  case_when(
-    is.na(p) ~ "",
-    p < 0.001 ~ "***",
-    p < 0.01  ~ "**",
-    p < 0.05  ~ "*",
-    p < 0.10  ~ "+",
-    TRUE ~ ""
-  )
+scale2 <- function(x) {
+  as.numeric(scale(x))
 }
 
 # ============================================================
@@ -72,12 +77,18 @@ cat("Games:", nlevels(df$game), "\n")
 # ============================================================
 
 outcome_specs <- tibble(
-  window = c("0d", "1d", "2d"),
+  window = c(
+    "0d",
+    "1d",
+    "2d"
+  ),
+
   lift_dv = c(
     "engagement_lift_0d",
     "engagement_lift_1d",
     "engagement_lift_2d"
   ),
+
   retention_dv = c(
     "engagement_retention_0d",
     "engagement_retention_1d",
@@ -86,14 +97,20 @@ outcome_specs <- tibble(
 )
 
 missing_outcomes <- setdiff(
-  c(outcome_specs$lift_dv, outcome_specs$retention_dv),
+  c(
+    outcome_specs$lift_dv,
+    outcome_specs$retention_dv
+  ),
   names(df)
 )
 
 if (length(missing_outcomes) > 0) {
   stop(
     "Missing outcome variables from final_patch_dataset.csv:\n",
-    paste(missing_outcomes, collapse = ", "),
+    paste(
+      missing_outcomes,
+      collapse = ", "
+    ),
     "\n\nRun the updated Step 04 first."
   )
 }
@@ -114,19 +131,31 @@ lag_candidates <- c(
   "pre_engagement"
 )
 
-lag_var <- lag_candidates[lag_candidates %in% names(df)][1]
+lag_var <- lag_candidates[
+  lag_candidates %in% names(df)
+][1]
 
 if (is.na(lag_var)) {
   stop(
     "Could not find a lagged engagement variable.\n\n",
     "Expected one of:\n",
-    paste(lag_candidates, collapse = ", "),
+    paste(
+      lag_candidates,
+      collapse = ", "
+    ),
     "\n\nAvailable columns:\n",
-    paste(names(df), collapse = ", ")
+    paste(
+      names(df),
+      collapse = ", "
+    )
   )
 }
 
-cat("\nUsing lagged engagement control:", lag_var, "\n")
+cat(
+  "\nUsing lagged engagement control:",
+  lag_var,
+  "\n"
+)
 
 # ============================================================
 # 4) REQUIRED VARIABLES
@@ -143,6 +172,7 @@ required_vars <- c(
 
   "log_days_since_release",
   "log_total_chars",
+  "log_avg_sentence_chars",
   "new_season_patch",
 
   "game",
@@ -151,12 +181,18 @@ required_vars <- c(
   lag_var
 )
 
-missing_vars <- setdiff(required_vars, names(df))
+missing_vars <- setdiff(
+  required_vars,
+  names(df)
+)
 
 if (length(missing_vars) > 0) {
   stop(
     "These required variables are missing from the dataset:\n",
-    paste(missing_vars, collapse = ", ")
+    paste(
+      missing_vars,
+      collapse = ", "
+    )
   )
 }
 
@@ -166,45 +202,132 @@ if (length(missing_vars) > 0) {
 
 df_model <- df %>%
   filter(
-    if_all(all_of(required_vars), ~ !is.na(.x))
+    if_all(
+      all_of(required_vars),
+      ~ !is.na(.x)
+    )
   ) %>%
   mutate(
-    year = as.factor(format(event_date, "%Y")),
+    year = as.factor(
+      format(
+        event_date,
+        "%Y"
+      )
+    ),
 
     # Standardized lever predictors
-    z_competitive = scale2(rel_competitive),
-    z_cosmetic    = scale2(rel_cosmetic),
-    z_seasonal    = scale2(rel_seasonal),
-    z_difficulty  = scale2(rel_difficulty),
+    z_competitive = scale2(
+      rel_competitive
+    ),
+
+    z_cosmetic = scale2(
+      rel_cosmetic
+    ),
+
+    z_seasonal = scale2(
+      rel_seasonal
+    ),
+
+    z_difficulty = scale2(
+      rel_difficulty
+    ),
 
     # Quadratic terms for Model 2
-    z_competitive_sq = z_competitive^2,
-    z_cosmetic_sq    = z_cosmetic^2,
-    z_seasonal_sq    = z_seasonal^2,
-    z_difficulty_sq  = z_difficulty^2,
+    z_competitive_sq =
+      z_competitive^2,
+
+    z_cosmetic_sq =
+      z_cosmetic^2,
+
+    z_seasonal_sq =
+      z_seasonal^2,
+
+    z_difficulty_sq =
+      z_difficulty^2,
 
     # Standardized controls
-    z_lag_engagement = scale2(.data[[lag_var]]),
-    z_days_since_release = scale2(log_days_since_release),
-    z_patch_length = scale2(log_total_chars),
+    z_lag_engagement = scale2(
+      .data[[lag_var]]
+    ),
 
-    # Binary season timing control
-    new_season_patch = as.integer(new_season_patch)
+    z_days_since_release = scale2(
+      log_days_since_release
+    ),
+
+    z_patch_length = scale2(
+      log_total_chars
+    ),
+
+    # Potential sentence-length confound
+    z_sentence_length = scale2(
+      log_avg_sentence_chars
+    ),
+
+    # Binary season-timing control
+    new_season_patch = as.integer(
+      new_season_patch
+    )
   )
 
-cat("\nModel sample:", nrow(df_model), "rows\n")
+cat(
+  "\nModel sample:",
+  nrow(df_model),
+  "rows\n"
+)
 
 cat("\nRows by game:\n")
+
 df_model %>%
-  count(game, sort = TRUE) %>%
-  print(n = Inf)
+  count(
+    game,
+    sort = TRUE
+  ) %>%
+  print(
+    n = Inf
+  )
 
 # ============================================================
-# 6) LEVER CORRELATION CHECK
+# 6) CORRELATION CHECK
 # ============================================================
 
-cat("\n--- LEVER CORRELATION CHECK ---\n")
+cat("\n--- PREDICTOR CORRELATION CHECK ---\n")
 
+predictor_cor <- df_model %>%
+  select(
+    z_competitive,
+    z_cosmetic,
+    z_seasonal,
+    z_difficulty,
+    z_lag_engagement,
+    z_days_since_release,
+    z_patch_length,
+    z_sentence_length,
+    new_season_patch
+  ) %>%
+  cor(
+    use = "pairwise.complete.obs"
+  )
+
+print(
+  round(
+    predictor_cor,
+    3
+  )
+)
+
+predictor_cor_out <- as.data.frame(
+  predictor_cor
+) %>%
+  rownames_to_column(
+    "predictor"
+  )
+
+write_csv(
+  predictor_cor_out,
+  "output/tables/study2/study2_predictor_correlations.csv"
+)
+
+# Retain a lever-only correlation file for continuity
 lever_cor <- df_model %>%
   select(
     rel_competitive,
@@ -212,12 +335,16 @@ lever_cor <- df_model %>%
     rel_seasonal,
     rel_difficulty
   ) %>%
-  cor(use = "pairwise.complete.obs")
+  cor(
+    use = "pairwise.complete.obs"
+  )
 
-print(lever_cor)
-
-lever_cor_out <- as.data.frame(lever_cor) %>%
-  rownames_to_column("lever")
+lever_cor_out <- as.data.frame(
+  lever_cor
+) %>%
+  rownames_to_column(
+    "lever"
+  )
 
 write_csv(
   lever_cor_out,
@@ -238,6 +365,7 @@ model1_rhs <- paste(
   "new_season_patch",
   "z_days_since_release",
   "z_patch_length",
+  "z_sentence_length",
   sep = " + "
 )
 
@@ -251,6 +379,7 @@ model2_rhs <- paste(
   "new_season_patch",
   "z_days_since_release",
   "z_patch_length",
+  "z_sentence_length",
   sep = " + "
 )
 
@@ -258,8 +387,10 @@ model2_rhs <- paste(
 # 8) RUN MODEL FUNCTION
 # ============================================================
 
-run_lmer <- function(dv, rhs) {
-
+run_lmer <- function(
+  dv,
+  rhs
+) {
   form <- as.formula(
     paste0(
       dv,
@@ -275,7 +406,9 @@ run_lmer <- function(dv, rhs) {
     REML = FALSE,
     control = lmerControl(
       optimizer = "bobyqa",
-      optCtrl = list(maxfun = 2e5)
+      optCtrl = list(
+        maxfun = 2e5
+      )
     )
   )
 }
@@ -286,30 +419,55 @@ run_lmer <- function(dv, rhs) {
 
 models <- list()
 
-for (i in seq_len(nrow(outcome_specs))) {
-
+for (i in seq_len(
+  nrow(outcome_specs)
+)) {
   window_i <- outcome_specs$window[i]
   lift_i <- outcome_specs$lift_dv[i]
   retention_i <- outcome_specs$retention_dv[i]
 
-  cat("\nRunning window:", window_i, "\n")
+  cat(
+    "\nRunning window:",
+    window_i,
+    "\n"
+  )
 
-  models[[paste0("model1_lift_", window_i)]] <- run_lmer(
+  models[[
+    paste0(
+      "model1_lift_",
+      window_i
+    )
+  ]] <- run_lmer(
     dv = lift_i,
     rhs = model1_rhs
   )
 
-  models[[paste0("model2_lift_", window_i)]] <- run_lmer(
+  models[[
+    paste0(
+      "model2_lift_",
+      window_i
+    )
+  ]] <- run_lmer(
     dv = lift_i,
     rhs = model2_rhs
   )
 
-  models[[paste0("model1_retention_", window_i)]] <- run_lmer(
+  models[[
+    paste0(
+      "model1_retention_",
+      window_i
+    )
+  ]] <- run_lmer(
     dv = retention_i,
     rhs = model1_rhs
   )
 
-  models[[paste0("model2_retention_", window_i)]] <- run_lmer(
+  models[[
+    paste0(
+      "model2_retention_",
+      window_i
+    )
+  ]] <- run_lmer(
     dv = retention_i,
     rhs = model2_rhs
   )
@@ -324,31 +482,65 @@ model_index <- tibble(
 ) %>%
   mutate(
     model_number = case_when(
-      str_detect(object_name, "model1") ~ "Model 1",
-      str_detect(object_name, "model2") ~ "Model 2",
+      str_detect(
+        object_name,
+        "model1"
+      ) ~ "Model 1",
+
+      str_detect(
+        object_name,
+        "model2"
+      ) ~ "Model 2",
+
       TRUE ~ object_name
     ),
+
     model = case_when(
-      str_detect(object_name, "model1") ~ "Main Linear HLM",
-      str_detect(object_name, "model2") ~ "Exploratory Quadratic HLM",
+      str_detect(
+        object_name,
+        "model1"
+      ) ~ "Main Linear HLM",
+
+      str_detect(
+        object_name,
+        "model2"
+      ) ~ "Exploratory Quadratic HLM",
+
       TRUE ~ object_name
     ),
+
     outcome = case_when(
-      str_detect(object_name, "lift") ~ "Lift",
-      str_detect(object_name, "retention") ~ "Retention",
+      str_detect(
+        object_name,
+        "lift"
+      ) ~ "Lift",
+
+      str_detect(
+        object_name,
+        "retention"
+      ) ~ "Retention",
+
       TRUE ~ NA_character_
     ),
-    window = str_extract(object_name, "(0d|1d|2d)$")
+
+    window = str_extract(
+      object_name,
+      "(0d|1d|2d)$"
+    )
   )
 
 # ============================================================
 # 11) COLLECT FULL TIDY RESULTS
 # ============================================================
 
-extract_results <- function(model_obj, object_name) {
-
+extract_results <- function(
+  model_obj,
+  object_name
+) {
   info <- model_index %>%
-    filter(object_name == !!object_name)
+    filter(
+      .data$object_name == .env$object_name
+    )
 
   broom.mixed::tidy(
     model_obj,
@@ -370,23 +562,58 @@ results_all <- map2_dfr(
 ) %>%
   mutate(
     term_clean = case_when(
-      term == "(Intercept)" ~ "Intercept",
-      term == "z_lag_engagement" ~ "Lagged Engagement",
-      term == "z_competitive" ~ "Competitive",
-      term == "z_cosmetic" ~ "Cosmetic",
-      term == "z_seasonal" ~ "Seasonal",
-      term == "z_difficulty" ~ "Difficulty",
-      term == "z_competitive_sq" ~ "Competitive Squared",
-      term == "z_cosmetic_sq" ~ "Cosmetic Squared",
-      term == "z_seasonal_sq" ~ "Seasonal Squared",
-      term == "z_difficulty_sq" ~ "Difficulty Squared",
-      term == "new_season_patch" ~ "Near Season Launch",
-      term == "z_days_since_release" ~ "Days Since Release",
-      term == "z_patch_length" ~ "Patch Length",
+      term == "(Intercept)" ~
+        "Intercept",
+
+      term == "z_lag_engagement" ~
+        "Lagged Engagement",
+
+      term == "z_competitive" ~
+        "Competitive",
+
+      term == "z_cosmetic" ~
+        "Cosmetic",
+
+      term == "z_seasonal" ~
+        "Seasonal",
+
+      term == "z_difficulty" ~
+        "Difficulty",
+
+      term == "z_competitive_sq" ~
+        "Competitive Squared",
+
+      term == "z_cosmetic_sq" ~
+        "Cosmetic Squared",
+
+      term == "z_seasonal_sq" ~
+        "Seasonal Squared",
+
+      term == "z_difficulty_sq" ~
+        "Difficulty Squared",
+
+      term == "new_season_patch" ~
+        "Near Season Launch",
+
+      term == "z_days_since_release" ~
+        "Days Since Release",
+
+      term == "z_patch_length" ~
+        "Patch Length",
+
+      term == "z_sentence_length" ~
+        "Average Sentence Length",
+
       TRUE ~ term
     ),
-    sig = sig_stars(p.value),
-    display = sprintf("%.3f (%.3f)%s", estimate, std.error, sig)
+
+    # Estimate with standard error in parentheses.
+    # No significance stars are appended.
+    display = sprintf(
+      "%.3f (%.3f)",
+      estimate,
+      std.error
+    )
   )
 
 # ============================================================
@@ -404,12 +631,15 @@ clean_terms <- c(
   "Difficulty Squared",
   "Near Season Launch",
   "Patch Length",
+  "Average Sentence Length",
   "Days Since Release",
   "Lagged Engagement"
 )
 
 clean_results <- results_all %>%
-  filter(term_clean %in% clean_terms) %>%
+  filter(
+    term_clean %in% clean_terms
+  ) %>%
   select(
     window,
     outcome,
@@ -420,34 +650,120 @@ clean_results <- results_all %>%
     std_error = std.error,
     statistic,
     p_value = p.value,
-    sig,
     display
   ) %>%
   arrange(
     window,
     outcome,
     model_number,
-    factor(term, levels = clean_terms)
+    factor(
+      term,
+      levels = clean_terms
+    )
   )
 
-# Wide version for easier viewing
+# Wide version for easier viewing and manuscript tables
 clean_results_wide <- clean_results %>%
-  select(window, outcome, model_number, term, display) %>%
+  select(
+    window,
+    outcome,
+    model_number,
+    term,
+    display
+  ) %>%
   pivot_wider(
-    names_from = c(window, outcome, model_number),
+    names_from = c(
+      window,
+      outcome,
+      model_number
+    ),
     values_from = display
   )
 
 # ============================================================
-# 13) MODEL FIT TABLE
+# 13) MULTICOLLINEARITY / VIF CHECK
 # ============================================================
 
-get_fit <- function(model_obj, object_name) {
+cat("\n--- MODEL 1 VIF CHECK ---\n")
 
+# VIF values are identical across outcomes when the predictor
+# set and analytical sample are unchanged. We nevertheless
+# extract them for each Model 1 outcome/window model to document
+# that the diagnostics were performed across the fitted models.
+
+extract_vif <- function(
+  model_obj,
+  object_name
+) {
   info <- model_index %>%
-    filter(object_name == !!object_name)
+    filter(
+      .data$object_name == .env$object_name
+    )
 
-  r2_vals <- performance::r2_nakagawa(model_obj)
+  vif_obj <- performance::check_collinearity(
+    model_obj
+  )
+
+  as.data.frame(
+    vif_obj
+  ) %>%
+    as_tibble() %>%
+    mutate(
+      object_name = object_name,
+      model_number = info$model_number,
+      model = info$model,
+      outcome = info$outcome,
+      window = info$window,
+      .before = 1
+    )
+}
+
+vif_results <- map2_dfr(
+  models,
+  names(models),
+  extract_vif
+)
+
+print(
+  vif_results,
+  n = Inf,
+  width = Inf
+)
+
+write_csv(
+  vif_results,
+  "output/tables/study2/study2_hlm_vif_results.csv",
+  na = ""
+)
+
+# Separate compact VIF table for the primary linear models
+vif_model1 <- vif_results %>%
+  filter(
+    model_number == "Model 1"
+  )
+
+write_csv(
+  vif_model1,
+  "output/tables/study2/study2_hlm_vif_model1.csv",
+  na = ""
+)
+
+# ============================================================
+# 14) MODEL FIT TABLE
+# ============================================================
+
+get_fit <- function(
+  model_obj,
+  object_name
+) {
+  info <- model_index %>%
+    filter(
+      .data$object_name == .env$object_name
+    )
+
+  r2_vals <- performance::r2_nakagawa(
+    model_obj
+  )
 
   tibble(
     object_name = object_name,
@@ -468,10 +784,14 @@ fit_compare <- map2_dfr(
   names(models),
   get_fit
 ) %>%
-  arrange(window, outcome, model_number)
+  arrange(
+    window,
+    outcome,
+    model_number
+  )
 
 # ============================================================
-# 14) SAVE RESULTS
+# 15) SAVE RESULTS
 # ============================================================
 
 write_csv(
@@ -499,15 +819,58 @@ write_csv(
 )
 
 cat("\nSaved:\n")
-cat(" - results/study2_hlm_models_results_full.csv\n")
-cat(" - results/study2_hlm_models_clean_results.csv\n")
-cat(" - results/study2_hlm_models_clean_results_wide.csv\n")
-cat(" - results/study2_hlm_models_fit.csv\n")
-cat(" - results/study2_lever_correlations.csv\n")
+cat(
+  " - output/tables/study2/",
+  "study2_hlm_models_results_full.csv\n",
+  sep = ""
+)
+cat(
+  " - output/tables/study2/",
+  "study2_hlm_models_clean_results.csv\n",
+  sep = ""
+)
+cat(
+  " - output/tables/study2/",
+  "study2_hlm_models_clean_results_wide.csv\n",
+  sep = ""
+)
+cat(
+  " - output/tables/study2/",
+  "study2_hlm_models_fit.csv\n",
+  sep = ""
+)
+cat(
+  " - output/tables/study2/",
+  "study2_lever_correlations.csv\n",
+  sep = ""
+)
+cat(
+  " - output/tables/study2/",
+  "study2_predictor_correlations.csv\n",
+  sep = ""
+)
+cat(
+  " - output/tables/study2/",
+  "study2_hlm_vif_results.csv\n",
+  sep = ""
+)
+cat(
+  " - output/tables/study2/",
+  "study2_hlm_vif_model1.csv\n",
+  sep = ""
+)
 
 cat("\nModel guide:\n")
 cat(" - Model 1: Main Linear HLM\n")
 cat(" - Model 2: Exploratory Quadratic HLM\n")
+
+cat("\nControls:\n")
+cat(" - Lagged engagement\n")
+cat(" - Near-season-launch timing\n")
+cat(" - Days since release\n")
+cat(" - Overall patch-note length\n")
+cat(" - Average sentence length\n")
+cat(" - Random intercept for game\n")
 
 cat("\nOutcome windows:\n")
 cat(" - 0d: immediate = day 0\n")

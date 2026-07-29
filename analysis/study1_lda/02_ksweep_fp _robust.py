@@ -62,22 +62,22 @@ def main():
     SPLIT_JSON = os.path.join(OUT_DIR, "lda_split_FP_stratified.json")
 
     # K_GRID = list(range(5, 51, 5))  # [5, 10, 15, ..., 50] ## here it was 5 as the optimum on 2025-11-05
-    K_GRID = list(range(2, 11, 1))  # [checks for k from 2-10]
+    K_GRID = list(range(5, 101, 5))  # [checks for k from 2-10]
     RANDOM_STATE = 42
     PASSES, ITERS = 5, 400
     CHUNKSIZE = 2000
     WORKERS = os.cpu_count() or 12
 
     print("=" * 80)
-    print("FP ANALYSIS: K-SELECTION SWEEP (K=2-10)")
+    print("FP ANALYSIS: K-SELECTION SWEEP (K=5-100)")
     print("=" * 80)
     print(f"\n[CONFIG] Configuration:")
     print(f"   Total cores: {WORKERS}")
     print(f"   Workers per model: {WORKERS} (sequential K training)")
     print(f"   K range: {K_GRID[0]} to {K_GRID[-1]} (step {K_GRID[1]-K_GRID[0]}, n={len(K_GRID)})")
 
-    RESULTS_CSV = os.path.join(TABLES_DIR, "lda_k_selection_FP_metrics_2_10.csv")
-    PLOT_COMBINED = os.path.join(FIGURES_DIR, "lda_k_sweep_FP_2_10.png")
+    RESULTS_CSV = os.path.join(TABLES_DIR, "lda_k_selection_FP_metrics_5_100.csv")
+    PLOT_COMBINED = os.path.join(FIGURES_DIR, "lda_k_sweep_FP_5_100.png")
 
     os.makedirs(OUT_DIR, exist_ok=True)
     os.makedirs(TABLES_DIR, exist_ok=True)
@@ -179,7 +179,7 @@ def main():
 
         ax1.axvline(best_k, linestyle=":", linewidth=1.5, color='green',
                    label=f'Best K={best_k}')
-        ax1.set_title(f"LDA K Sweep (FP Games, K=2-10) — Best K={best_k}")
+        ax1.set_title(f"LDA K Sweep (FP Games, K=5-100) — Best K={best_k}")
 
         lines1, labels1 = ax1.get_legend_handles_labels()
         lines2, labels2 = ax2.get_legend_handles_labels()
@@ -198,7 +198,8 @@ if __name__ == '__main__':
     import sys
     from multiprocessing import freeze_support
 
-    # Ensure subprocess spawn code can inspect __spec__ when running under IPython/%run
+    # Provide a __spec__ placeholder when running under IPython/%run so
+    # multiprocessing.spawn.get_preparation_data() doesn't fail.
     if not hasattr(sys.modules['__main__'], '__spec__'):
         sys.modules['__main__'].__spec__ = None
 

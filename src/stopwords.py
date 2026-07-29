@@ -33,8 +33,8 @@ GENERIC_CHAT = {
 
 # YouTube/streaming platform metadata
 PLATFORM_TERMS = {
-    'view', 'stream', 'watched', 'bruh', 'tho', 'thumbnail', 'sub', 'channel',
-    'content', 'clip', 'stream'
+    'view', 'stream', 'watched', 'bruh', 'tho', 'thumbnail', 'sub', 'subscribe',
+    'channel', 'content', 'clip', 'stream', 'plz', 'que', 'how_many', 'jesus'
 }
 
 # Gaming content creator names
@@ -69,7 +69,7 @@ CHARACTER_NAMES = {
 
 # Gaming metadata and ranking terms
 GAMING_METADATA = {
-    'ranked', 'rank', 'season', 'matchmaking', 'mmr', 'elo'
+    'matchmaking'
 }
 
 # Additional common words from extended stopword list
@@ -88,9 +88,31 @@ EXTENDED_COMMON = {
 
 # Franchise/game-specific terms (optional based on analysis goals)
 FRANCHISE_TOKENS = {
-    'fortnite', 'apex', 'valorant', 'rocket_league', 'dota', 'zelda',
-    'elden_ring', 'hollow_knight', 'red_dead_redemption', 'red_dead_redemption_2',
-    'baldur', 'baldur_gate', 'baldur_gate_3', 'rdr', 'rdr2'
+    # F2P game/franchise names
+    'fortnite', 'fort',
+    'apex', 'apex_legend', 'apex_legends', 'in_apex_legend',
+    'valorant',
+    'rocket_league',
+    'dota', 'dota_2',
+
+    # Publisher/developer/franchise artifacts
+    'respawn', 'epic', 'epic_games', 'riot', 'riot_games', 'valve',
+
+    # Game-specific naming artifacts that are not higher-order progression themes
+    'legend', 'legends',
+    'overwatch',
+
+    # Legacy SD terms, harmless for all-games scripts
+    'zelda',
+    'elden_ring',
+    'hollow_knight',
+    'red_dead_redemption',
+    'red_dead_redemption_2',
+    'baldur',
+    'baldur_gate',
+    'baldur_gate_3',
+    'rdr',
+    'rdr2'
 }
 
 
@@ -101,6 +123,7 @@ def get_stopwords(include_franchise=False, include_characters=True, include_nltk
     Parameters
     ----------
     include_franchise : bool, default=False
+
         If True, include franchise/game-specific tokens in stopwords.
         Set to False (default) to allow game names in topics for cross-game analysis.
     include_characters : bool, default=True

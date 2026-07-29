@@ -1,11 +1,21 @@
 # ============================================================
 # 02 BUILD PROGRESSION LEVERS — SENTENCE LEVEL ONLY
+#
 # Input:
-#   data_processed/all_games_strict_updates.csv
+#   data/interim/study2/all_games_strict_updates.csv
 #
 # Outputs:
-#   data_processed/patch_sentences.csv
-#   data_processed/patch_levers_sentence.csv
+#   data/interim/study2/patch_sentences.csv
+#   data/interim/study2/patch_levers_sentence.csv
+#
+# Diagnostics:
+#   output/tables/study2/step2_sentence_game_check.csv
+#   output/tables/study2/step2_sentence_overlap_check.csv
+#
+# Sentence-length control:
+#   avg_sentence_chars =
+#     total retained sentence characters /
+#     total retained sentences
 # ============================================================
 
 library(tidyverse)
@@ -13,9 +23,23 @@ library(stringr)
 library(readr)
 library(lubridate)
 
-dir.create("data/interim/study2", showWarnings = FALSE, recursive = TRUE)
-dir.create("output/tables/study2", showWarnings = FALSE, recursive = TRUE)
-dir.create("output/figures/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create(
+  "data/interim/study2",
+  showWarnings = FALSE,
+  recursive = TRUE
+)
+
+dir.create(
+  "output/tables/study2",
+  showWarnings = FALSE,
+  recursive = TRUE
+)
+
+dir.create(
+  "output/figures/study2",
+  showWarnings = FALSE,
+  recursive = TRUE
+)
 
 # ============================================================
 # 1) LOAD DATA
@@ -43,12 +67,13 @@ patches <- read_csv(
     full_text   = str_squish(full_text),
     patch_title = str_squish(patch_title),
     char_count  = nchar(full_text, type = "chars"),
-    word_count  = str_count(full_text, "\\S+")
+    word_count  = str_count(full_text, "\\S+"),
+    log_char_count = log1p(char_count)
   ) %>%
   arrange(game, event_date)
 
-cat("\n🎮 Loaded strict update events:", nrow(patches), "\n")
-cat("🎮 Unique games:", n_distinct(patches$game), "\n\n")
+cat("\nLoaded strict update events:", nrow(patches), "\n")
+cat("Unique games:", n_distinct(patches$game), "\n\n")
 
 # ============================================================
 # 2) VALIDATE INPUT DATA
@@ -59,10 +84,10 @@ cat("\n--- INPUT DATA SUMMARY ---\n")
 patches %>%
   group_by(game) %>%
   summarise(
-    updates = n(),
+    updates   = n(),
     avg_words = mean(word_count, na.rm = TRUE),
     avg_chars = mean(char_count, na.rm = TRUE),
-    .groups = "drop"
+    .groups   = "drop"
   ) %>%
   arrange(desc(updates)) %>%
   print(n = Inf)
@@ -81,10 +106,10 @@ cat("\n--- EVENT DATE CHECK ---\n")
 patches %>%
   group_by(game) %>%
   summarise(
-    total_rows = n(),
+    total_rows        = n(),
     unique_event_dates = n_distinct(event_date),
-    duplicate_dates = total_rows - unique_event_dates,
-    .groups = "drop"
+    duplicate_dates   = total_rows - unique_event_dates,
+    .groups           = "drop"
   ) %>%
   print(n = Inf)
 
@@ -240,13 +265,24 @@ sentences <- patches %>%
       as.integer(is_seasonal) +
       as.integer(is_difficulty),
 
-    comp_chars_sentence = sentence_chars * as.integer(is_competitive),
-    cos_chars_sentence  = sentence_chars * as.integer(is_cosmetic),
-    seas_chars_sentence = sentence_chars * as.integer(is_seasonal),
-    diff_chars_sentence = sentence_chars * as.integer(is_difficulty)
+    comp_chars_sentence =
+      sentence_chars * as.integer(is_competitive),
+
+    cos_chars_sentence =
+      sentence_chars * as.integer(is_cosmetic),
+
+    seas_chars_sentence =
+      sentence_chars * as.integer(is_seasonal),
+
+    diff_chars_sentence =
+      sentence_chars * as.integer(is_difficulty)
   )
 
-cat("\n🧩 Sentences retained after filtering:", nrow(sentences), "\n\n")
+cat(
+  "\nSentences retained after filtering:",
+  nrow(sentences),
+  "\n\n"
+)
 
 # ============================================================
 # 5) AGGREGATE SENTENCE-LEVEL MEASURES TO EVENT LEVEL
@@ -261,21 +297,62 @@ patch_levers_sentence <- sentences %>%
     source_url
   ) %>%
   summarise(
-    total_sentence_chars = sum(sentence_chars, na.rm = TRUE),
-    total_sentences      = n(),
+    total_sentence_chars = sum(
+      sentence_chars,
+      na.rm = TRUE
+    ),
 
-    abs_competitive = sum(comp_chars_sentence, na.rm = TRUE),
-    abs_cosmetic    = sum(cos_chars_sentence, na.rm = TRUE),
-    abs_seasonal    = sum(seas_chars_sentence, na.rm = TRUE),
-    abs_difficulty  = sum(diff_chars_sentence, na.rm = TRUE),
+    total_sentences = n(),
 
-    sentence_comp_hits = sum(is_competitive, na.rm = TRUE),
-    sentence_cos_hits  = sum(is_cosmetic, na.rm = TRUE),
-    sentence_seas_hits = sum(is_seasonal, na.rm = TRUE),
-    sentence_diff_hits = sum(is_difficulty, na.rm = TRUE),
+    abs_competitive = sum(
+      comp_chars_sentence,
+      na.rm = TRUE
+    ),
 
-    any_lever_sentences   = sum(sentence_lever_total >= 1, na.rm = TRUE),
-    multi_lever_sentences = sum(sentence_lever_total > 1, na.rm = TRUE),
+    abs_cosmetic = sum(
+      cos_chars_sentence,
+      na.rm = TRUE
+    ),
+
+    abs_seasonal = sum(
+      seas_chars_sentence,
+      na.rm = TRUE
+    ),
+
+    abs_difficulty = sum(
+      diff_chars_sentence,
+      na.rm = TRUE
+    ),
+
+    sentence_comp_hits = sum(
+      is_competitive,
+      na.rm = TRUE
+    ),
+
+    sentence_cos_hits = sum(
+      is_cosmetic,
+      na.rm = TRUE
+    ),
+
+    sentence_seas_hits = sum(
+      is_seasonal,
+      na.rm = TRUE
+    ),
+
+    sentence_diff_hits = sum(
+      is_difficulty,
+      na.rm = TRUE
+    ),
+
+    any_lever_sentences = sum(
+      sentence_lever_total >= 1,
+      na.rm = TRUE
+    ),
+
+    multi_lever_sentences = sum(
+      sentence_lever_total > 1,
+      na.rm = TRUE
+    ),
 
     .groups = "drop"
   ) %>%
@@ -302,6 +379,15 @@ patch_levers_sentence <- sentences %>%
       total_sentence_chars > 0,
       abs_difficulty / total_sentence_chars,
       0
+    ),
+
+    # Average characters per retained sentence.
+    # This is the sentence-length control carried into
+    # the later model-building steps.
+    avg_sentence_chars = if_else(
+      total_sentences > 0,
+      total_sentence_chars / total_sentences,
+      NA_real_
     ),
 
     total_lever_chars =
@@ -334,27 +420,54 @@ patch_metadata <- patches %>%
     word_count,
     log_char_count,
     source_type,
-    any_of(c(
-      "year",
-      "month",
-      "announcement_number",
-      "days_since_last_event",
-      "log_days_since_last_event",
-      "broad_update",
-      "strict_update",
-      "announcement_category"
-    ))
+    any_of(
+      c(
+        "year",
+        "month",
+        "announcement_number",
+        "days_since_last_event",
+        "log_days_since_last_event",
+        "broad_update",
+        "strict_update",
+        "announcement_category"
+      )
+    )
   ) %>%
   distinct()
 
 patch_levers_sentence <- patch_metadata %>%
   left_join(
     patch_levers_sentence,
-    by = c("game", "event_id", "event_date", "patch_title", "source_url")
+    by = c(
+      "game",
+      "event_id",
+      "event_date",
+      "patch_title",
+      "source_url"
+    )
   ) %>%
   mutate(
     across(
-      where(is.numeric),
+      c(
+        total_sentence_chars,
+        total_sentences,
+        abs_competitive,
+        abs_cosmetic,
+        abs_seasonal,
+        abs_difficulty,
+        sentence_comp_hits,
+        sentence_cos_hits,
+        sentence_seas_hits,
+        sentence_diff_hits,
+        any_lever_sentences,
+        multi_lever_sentences,
+        rel_competitive,
+        rel_cosmetic,
+        rel_seasonal,
+        rel_difficulty,
+        total_lever_chars,
+        rel_any_lever
+      ),
       ~replace_na(.x, 0)
     )
   )
@@ -367,11 +480,40 @@ cat("\n--- SENTENCE-LEVEL MEAN SHARE CHECK ---\n")
 
 patch_levers_sentence %>%
   summarise(
-    mean_comp = mean(rel_competitive, na.rm = TRUE),
-    mean_cos  = mean(rel_cosmetic, na.rm = TRUE),
-    mean_seas = mean(rel_seasonal, na.rm = TRUE),
-    mean_diff = mean(rel_difficulty, na.rm = TRUE),
-    mean_any  = mean(rel_any_lever, na.rm = TRUE)
+    mean_comp = mean(
+      rel_competitive,
+      na.rm = TRUE
+    ),
+
+    mean_cos = mean(
+      rel_cosmetic,
+      na.rm = TRUE
+    ),
+
+    mean_seas = mean(
+      rel_seasonal,
+      na.rm = TRUE
+    ),
+
+    mean_diff = mean(
+      rel_difficulty,
+      na.rm = TRUE
+    ),
+
+    mean_any = mean(
+      rel_any_lever,
+      na.rm = TRUE
+    ),
+
+    mean_avg_sentence_chars = mean(
+      avg_sentence_chars,
+      na.rm = TRUE
+    ),
+
+    sd_avg_sentence_chars = sd(
+      avg_sentence_chars,
+      na.rm = TRUE
+    )
   ) %>%
   print()
 
@@ -390,18 +532,78 @@ patch_levers_sentence %>%
   ) %>%
   print()
 
+cat("\n--- SENTENCE-LENGTH CONTROL CHECK ---\n")
+
+patch_levers_sentence %>%
+  summarise(
+    min_avg_sentence_chars = min(
+      avg_sentence_chars,
+      na.rm = TRUE
+    ),
+
+    max_avg_sentence_chars = max(
+      avg_sentence_chars,
+      na.rm = TRUE
+    ),
+
+    mean_avg_sentence_chars = mean(
+      avg_sentence_chars,
+      na.rm = TRUE
+    ),
+
+    sd_avg_sentence_chars = sd(
+      avg_sentence_chars,
+      na.rm = TRUE
+    ),
+
+    missing_avg_sentence_chars = sum(
+      is.na(avg_sentence_chars)
+    )
+  ) %>%
+  print()
+
 cat("\n--- GAME BREAKDOWN ---\n")
 
 game_check <- patch_levers_sentence %>%
   group_by(game) %>%
   summarise(
     updates = n(),
-    mean_comp = mean(rel_competitive, na.rm = TRUE),
-    mean_cos  = mean(rel_cosmetic, na.rm = TRUE),
-    mean_seas = mean(rel_seasonal, na.rm = TRUE),
-    mean_diff = mean(rel_difficulty, na.rm = TRUE),
-    mean_any  = mean(rel_any_lever, na.rm = TRUE),
-    avg_sentences = mean(total_sentences, na.rm = TRUE),
+
+    mean_comp = mean(
+      rel_competitive,
+      na.rm = TRUE
+    ),
+
+    mean_cos = mean(
+      rel_cosmetic,
+      na.rm = TRUE
+    ),
+
+    mean_seas = mean(
+      rel_seasonal,
+      na.rm = TRUE
+    ),
+
+    mean_diff = mean(
+      rel_difficulty,
+      na.rm = TRUE
+    ),
+
+    mean_any = mean(
+      rel_any_lever,
+      na.rm = TRUE
+    ),
+
+    avg_sentences = mean(
+      total_sentences,
+      na.rm = TRUE
+    ),
+
+    avg_sentence_chars = mean(
+      avg_sentence_chars,
+      na.rm = TRUE
+    ),
+
     .groups = "drop"
   ) %>%
   arrange(desc(updates))
@@ -412,12 +614,35 @@ cat("\n--- SENTENCE OVERLAP CHECK ---\n")
 
 overlap_check <- sentences %>%
   summarise(
-    pct_comp_sentence = mean(is_competitive, na.rm = TRUE),
-    pct_cos_sentence  = mean(is_cosmetic, na.rm = TRUE),
-    pct_seas_sentence = mean(is_seasonal, na.rm = TRUE),
-    pct_diff_sentence = mean(is_difficulty, na.rm = TRUE),
-    pct_any_lever_sentence = mean(sentence_lever_total >= 1, na.rm = TRUE),
-    pct_multi_lever_sentence = mean(sentence_lever_total > 1, na.rm = TRUE)
+    pct_comp_sentence = mean(
+      is_competitive,
+      na.rm = TRUE
+    ),
+
+    pct_cos_sentence = mean(
+      is_cosmetic,
+      na.rm = TRUE
+    ),
+
+    pct_seas_sentence = mean(
+      is_seasonal,
+      na.rm = TRUE
+    ),
+
+    pct_diff_sentence = mean(
+      is_difficulty,
+      na.rm = TRUE
+    ),
+
+    pct_any_lever_sentence = mean(
+      sentence_lever_total >= 1,
+      na.rm = TRUE
+    ),
+
+    pct_multi_lever_sentence = mean(
+      sentence_lever_total > 1,
+      na.rm = TRUE
+    )
   )
 
 print(overlap_check)
@@ -427,8 +652,16 @@ cat("\n--- ZERO LEVER UPDATE CHECK ---\n")
 patch_levers_sentence %>%
   summarise(
     total_updates = n(),
-    zero_lever_updates = sum(rel_any_lever == 0, na.rm = TRUE),
-    pct_zero_lever_updates = mean(rel_any_lever == 0, na.rm = TRUE)
+
+    zero_lever_updates = sum(
+      rel_any_lever == 0,
+      na.rm = TRUE
+    ),
+
+    pct_zero_lever_updates = mean(
+      rel_any_lever == 0,
+      na.rm = TRUE
+    )
   ) %>%
   print()
 
@@ -436,7 +669,10 @@ patch_levers_sentence %>%
 # 8) SAVE
 # ============================================================
 
-write_csv(sentences, "data/interim/study2/patch_sentences.csv")
+write_csv(
+  sentences,
+  "data/interim/study2/patch_sentences.csv"
+)
 
 write_csv(
   patch_levers_sentence,
@@ -453,16 +689,19 @@ write_csv(
   "output/tables/study2/step2_sentence_overlap_check.csv"
 )
 
-cat("\n✅ DONE — Sentence-level progression lever dataset created\n")
-cat("🎯 Strict updates analyzed:", nrow(patches), "\n")
-cat("🧩 Sentences coded:", nrow(sentences), "\n")
+cat("\nDONE — Sentence-level progression lever dataset created\n")
+cat("Strict updates analyzed:", nrow(patches), "\n")
+cat("Sentences coded:", nrow(sentences), "\n")
 
-cat("\n📁 Main output:\n")
-cat("   - data_processed/patch_levers_sentence.csv\n")
+cat("\nMain output:\n")
+cat("   - data/interim/study2/patch_levers_sentence.csv\n")
 
-cat("\n📁 Supporting output:\n")
-cat("   - data_processed/patch_sentences.csv\n")
+cat("\nSupporting output:\n")
+cat("   - data/interim/study2/patch_sentences.csv\n")
 
-cat("\n📁 Diagnostics:\n")
-cat("   - results/step2_sentence_game_check.csv\n")
-cat("   - results/step2_sentence_overlap_check.csv\n")
+cat("\nDiagnostics:\n")
+cat("   - output/tables/study2/step2_sentence_game_check.csv\n")
+cat("   - output/tables/study2/step2_sentence_overlap_check.csv\n")
+
+cat("\nSentence-length control created:\n")
+cat("   - avg_sentence_chars\n")

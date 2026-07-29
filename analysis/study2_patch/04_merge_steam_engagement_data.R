@@ -40,13 +40,21 @@ parse_steam_datetime <- function(x) {
 
   for (fmt in formats) {
     needs_parse <- is.na(out) & !is.na(x)
-    if (!any(needs_parse)) break
+
+    if (!any(needs_parse)) {
+      break
+    }
 
     parsed <- suppressWarnings(
-      as.POSIXct(x[needs_parse], format = fmt, tz = "UTC")
+      as.POSIXct(
+        x[needs_parse],
+        format = fmt,
+        tz = "UTC"
+      )
     )
 
     idx <- which(needs_parse)
+
     out[idx[!is.na(parsed)]] <- parsed[!is.na(parsed)]
   }
 
@@ -54,10 +62,14 @@ parse_steam_datetime <- function(x) {
 
   if (any(needs_parse)) {
     parsed <- suppressWarnings(
-      as.POSIXct(x[needs_parse], tz = "UTC")
+      as.POSIXct(
+        x[needs_parse],
+        tz = "UTC"
+      )
     )
 
     idx <- which(needs_parse)
+
     out[idx[!is.na(parsed)]] <- parsed[!is.na(parsed)]
   }
 
@@ -69,7 +81,10 @@ parse_steam_datetime <- function(x) {
 # ============================================================
 
 load_steam_file <- function(path, game_name) {
-  read_csv(path, show_col_types = FALSE) %>%
+  read_csv(
+    path,
+    show_col_types = FALSE
+  ) %>%
     mutate(
       DateTime = as.character(DateTime),
       Players = as.numeric(Players),
@@ -82,7 +97,13 @@ load_steam_file <- function(path, game_name) {
 # HELPER: WINDOW STATS
 # ============================================================
 
-get_window_stats <- function(game_i, date_i, start_offset, end_offset, steam_daily_df) {
+get_window_stats <- function(
+  game_i,
+  date_i,
+  start_offset,
+  end_offset,
+  steam_daily_df
+) {
   window_df <- steam_daily_df %>%
     filter(
       game == game_i,
@@ -91,9 +112,19 @@ get_window_stats <- function(game_i, date_i, start_offset, end_offset, steam_dai
     )
 
   tibble(
-    mean_log_avg_players = mean(window_df$log_avg_players_daily, na.rm = TRUE),
-    mean_avg_players = mean(window_df$avg_players, na.rm = TRUE),
-    n_days = sum(!is.na(window_df$log_avg_players_daily))
+    mean_log_avg_players = mean(
+      window_df$log_avg_players_daily,
+      na.rm = TRUE
+    ),
+
+    mean_avg_players = mean(
+      window_df$avg_players,
+      na.rm = TRUE
+    ),
+
+    n_days = sum(
+      !is.na(window_df$log_avg_players_daily)
+    )
   ) %>%
     mutate(
       mean_log_avg_players = if_else(
@@ -101,6 +132,7 @@ get_window_stats <- function(game_i, date_i, start_offset, end_offset, steam_dai
         NA_real_,
         mean_log_avg_players
       ),
+
       mean_avg_players = if_else(
         is.nan(mean_avg_players),
         NA_real_,
@@ -119,7 +151,11 @@ patch_data <- read_csv(
 ) %>%
   mutate(
     event_date = as.Date(event_date),
-    game = as.character(game)
+    game = as.character(game),
+
+    total_chars = as.numeric(total_chars),
+    total_sentence_chars = as.numeric(total_sentence_chars),
+    total_sentences = as.numeric(total_sentences)
   )
 
 cat("\n🎮 Loaded patch-level rows:", nrow(patch_data), "\n")
@@ -184,8 +220,8 @@ steam_raw <- bind_rows(
   counter_strike
 ) %>%
   rename(
-    datetime = `DateTime`,
-    players = `Players`,
+    datetime = DateTime,
+    players = Players,
     avg_players_raw = `Average Players`
   ) %>%
   mutate(
@@ -205,17 +241,30 @@ cat("🎮 Steam games:", n_distinct(steam_raw$game), "\n")
 # ============================================================
 
 steam_daily <- steam_raw %>%
-  group_by(game, event_date) %>%
+  group_by(
+    game,
+    event_date
+  ) %>%
   summarise(
     n_rows = n(),
 
     avg_players = case_when(
-      n_rows == 1 & !is.na(first(avg_players_raw)) ~ first(avg_players_raw),
-      sum(!is.na(avg_players_raw)) > 0 ~ mean(avg_players_raw, na.rm = TRUE),
-      TRUE ~ mean(players, na.rm = TRUE)
+      n_rows == 1 &
+        !is.na(first(avg_players_raw)) ~
+        first(avg_players_raw),
+
+      sum(!is.na(avg_players_raw)) > 0 ~
+        mean(avg_players_raw, na.rm = TRUE),
+
+      TRUE ~
+        mean(players, na.rm = TRUE)
     ),
 
-    avg_players = if_else(is.nan(avg_players), NA_real_, avg_players),
+    avg_players = if_else(
+      is.nan(avg_players),
+      NA_real_,
+      avg_players
+    ),
 
     peak_players = if (all(is.na(players))) {
       NA_real_
@@ -223,17 +272,31 @@ steam_daily <- steam_raw %>%
       max(players, na.rm = TRUE)
     },
 
-    n_avg_obs_day = sum(!is.na(avg_players_raw)),
+    n_avg_obs_day = sum(
+      !is.na(avg_players_raw)
+    ),
 
     .groups = "drop"
   ) %>%
-  arrange(game, event_date) %>%
+  arrange(
+    game,
+    event_date
+  ) %>%
   group_by(game) %>%
   mutate(
     lag_avg_players = lag(avg_players, 1),
-    log_avg_players_daily = log1p(avg_players),
-    log_lag_avg_players_daily = log1p(lag_avg_players),
-    log_peak_players_daily = log1p(peak_players)
+
+    log_avg_players_daily = log1p(
+      avg_players
+    ),
+
+    log_lag_avg_players_daily = log1p(
+      lag_avg_players
+    ),
+
+    log_peak_players_daily = log1p(
+      peak_players
+    )
   ) %>%
   ungroup()
 
@@ -250,34 +313,12 @@ patch_daily <- patch_data %>%
     abs_seasonal    = sum(abs_seasonal, na.rm = TRUE),
     abs_difficulty  = sum(abs_difficulty, na.rm = TRUE),
 
+    # Full original patch-note length
     total_chars = sum(total_chars, na.rm = TRUE),
-    total_chars = if_else(is.infinite(total_chars), NA_real_, total_chars),
 
-    rel_competitive = if_else(
-      total_chars > 0,
-      abs_competitive / total_chars,
-      NA_real_
-    ),
-
-    rel_cosmetic = if_else(
-      total_chars > 0,
-      abs_cosmetic / total_chars,
-      NA_real_
-    ),
-
-    rel_seasonal = if_else(
-      total_chars > 0,
-      abs_seasonal / total_chars,
-      NA_real_
-    ),
-
-    rel_difficulty = if_else(
-      total_chars > 0,
-      abs_difficulty / total_chars,
-      NA_real_
-    ),
-
-    log_total_chars = log1p(total_chars),
+    # Eligible sentence totals
+    total_sentence_chars = sum(total_sentence_chars, na.rm = TRUE),
+    total_sentences      = sum(total_sentences, na.rm = TRUE),
 
     new_season_patch = max(new_season_patch, na.rm = TRUE),
     days_since_release = first(days_since_release),
@@ -291,6 +332,40 @@ patch_daily <- patch_data %>%
     .groups = "drop"
   ) %>%
   mutate(
+    rel_competitive = if_else(
+      total_sentence_chars > 0,
+      abs_competitive / total_sentence_chars,
+      NA_real_
+    ),
+
+    rel_cosmetic = if_else(
+      total_sentence_chars > 0,
+      abs_cosmetic / total_sentence_chars,
+      NA_real_
+    ),
+
+    rel_seasonal = if_else(
+      total_sentence_chars > 0,
+      abs_seasonal / total_sentence_chars,
+      NA_real_
+    ),
+
+    rel_difficulty = if_else(
+      total_sentence_chars > 0,
+      abs_difficulty / total_sentence_chars,
+      NA_real_
+    ),
+
+    log_total_chars = log1p(total_chars),
+
+    avg_sentence_chars = if_else(
+      total_sentences > 0,
+      total_sentence_chars / total_sentences,
+      NA_real_
+    ),
+
+    log_avg_sentence_chars = log1p(avg_sentence_chars),
+
     new_season_patch = if_else(
       is.infinite(new_season_patch),
       0L,
@@ -324,150 +399,273 @@ patch_daily <- patch_data %>%
 #   retention = post-window - immediate window
 
 outcome_windows <- patch_daily %>%
-  select(game, event_date) %>%
+  select(
+    game,
+    event_date
+  ) %>%
   distinct() %>%
   rowwise() %>%
   mutate(
     # -------------------------
     # Baseline / pre-window
     # -------------------------
+
     pre_window = list(
-      get_window_stats(game, event_date, -7, -1, steam_daily)
+      get_window_stats(
+        game,
+        event_date,
+        -7,
+        -1,
+        steam_daily
+      )
     ),
 
-    pre_log_avg_players = pre_window$mean_log_avg_players,
-    pre_avg_players = pre_window$mean_avg_players,
-    n_pre_days = pre_window$n_days,
+    pre_log_avg_players =
+      pre_window$mean_log_avg_players,
+
+    pre_avg_players =
+      pre_window$mean_avg_players,
+
+    n_pre_days =
+      pre_window$n_days,
 
     # -------------------------
     # 0-day immediate version
     # -------------------------
+
     immediate_0d_window = list(
-      get_window_stats(game, event_date, 0, 0, steam_daily)
+      get_window_stats(
+        game,
+        event_date,
+        0,
+        0,
+        steam_daily
+      )
     ),
 
     post_0d_window = list(
-      get_window_stats(game, event_date, 1, 7, steam_daily)
+      get_window_stats(
+        game,
+        event_date,
+        1,
+        7,
+        steam_daily
+      )
     ),
 
-    immediate_0d_log_avg_players = immediate_0d_window$mean_log_avg_players,
-    post_0d_log_avg_players = post_0d_window$mean_log_avg_players,
+    immediate_0d_log_avg_players =
+      immediate_0d_window$mean_log_avg_players,
 
-    immediate_0d_avg_players = immediate_0d_window$mean_avg_players,
-    post_0d_avg_players = post_0d_window$mean_avg_players,
+    post_0d_log_avg_players =
+      post_0d_window$mean_log_avg_players,
 
-    n_immediate_0d_days = immediate_0d_window$n_days,
-    n_post_0d_days = post_0d_window$n_days,
+    immediate_0d_avg_players =
+      immediate_0d_window$mean_avg_players,
+
+    post_0d_avg_players =
+      post_0d_window$mean_avg_players,
+
+    n_immediate_0d_days =
+      immediate_0d_window$n_days,
+
+    n_post_0d_days =
+      post_0d_window$n_days,
 
     engagement_lift_0d =
-      immediate_0d_log_avg_players - pre_log_avg_players,
+      immediate_0d_log_avg_players -
+      pre_log_avg_players,
 
     engagement_retention_0d =
-      post_0d_log_avg_players - immediate_0d_log_avg_players,
+      post_0d_log_avg_players -
+      immediate_0d_log_avg_players,
 
     raw_lift_players_0d =
-      immediate_0d_avg_players - pre_avg_players,
+      immediate_0d_avg_players -
+      pre_avg_players,
 
     raw_retention_players_0d =
-      post_0d_avg_players - immediate_0d_avg_players,
+      post_0d_avg_players -
+      immediate_0d_avg_players,
 
     pct_lift_players_0d = if_else(
       pre_avg_players > 0,
-      (immediate_0d_avg_players - pre_avg_players) / pre_avg_players,
+
+      (
+        immediate_0d_avg_players -
+          pre_avg_players
+      ) / pre_avg_players,
+
       NA_real_
     ),
 
     pct_retention_players_0d = if_else(
       immediate_0d_avg_players > 0,
-      (post_0d_avg_players - immediate_0d_avg_players) / immediate_0d_avg_players,
+
+      (
+        post_0d_avg_players -
+          immediate_0d_avg_players
+      ) / immediate_0d_avg_players,
+
       NA_real_
     ),
 
     # -------------------------
     # 1-day immediate version
     # -------------------------
+
     immediate_1d_window = list(
-      get_window_stats(game, event_date, 0, 1, steam_daily)
+      get_window_stats(
+        game,
+        event_date,
+        0,
+        1,
+        steam_daily
+      )
     ),
 
     post_1d_window = list(
-      get_window_stats(game, event_date, 2, 7, steam_daily)
+      get_window_stats(
+        game,
+        event_date,
+        2,
+        7,
+        steam_daily
+      )
     ),
 
-    immediate_1d_log_avg_players = immediate_1d_window$mean_log_avg_players,
-    post_1d_log_avg_players = post_1d_window$mean_log_avg_players,
+    immediate_1d_log_avg_players =
+      immediate_1d_window$mean_log_avg_players,
 
-    immediate_1d_avg_players = immediate_1d_window$mean_avg_players,
-    post_1d_avg_players = post_1d_window$mean_avg_players,
+    post_1d_log_avg_players =
+      post_1d_window$mean_log_avg_players,
 
-    n_immediate_1d_days = immediate_1d_window$n_days,
-    n_post_1d_days = post_1d_window$n_days,
+    immediate_1d_avg_players =
+      immediate_1d_window$mean_avg_players,
+
+    post_1d_avg_players =
+      post_1d_window$mean_avg_players,
+
+    n_immediate_1d_days =
+      immediate_1d_window$n_days,
+
+    n_post_1d_days =
+      post_1d_window$n_days,
 
     engagement_lift_1d =
-      immediate_1d_log_avg_players - pre_log_avg_players,
+      immediate_1d_log_avg_players -
+      pre_log_avg_players,
 
     engagement_retention_1d =
-      post_1d_log_avg_players - immediate_1d_log_avg_players,
+      post_1d_log_avg_players -
+      immediate_1d_log_avg_players,
 
     raw_lift_players_1d =
-      immediate_1d_avg_players - pre_avg_players,
+      immediate_1d_avg_players -
+      pre_avg_players,
 
     raw_retention_players_1d =
-      post_1d_avg_players - immediate_1d_avg_players,
+      post_1d_avg_players -
+      immediate_1d_avg_players,
 
     pct_lift_players_1d = if_else(
       pre_avg_players > 0,
-      (immediate_1d_avg_players - pre_avg_players) / pre_avg_players,
+
+      (
+        immediate_1d_avg_players -
+          pre_avg_players
+      ) / pre_avg_players,
+
       NA_real_
     ),
 
     pct_retention_players_1d = if_else(
       immediate_1d_avg_players > 0,
-      (post_1d_avg_players - immediate_1d_avg_players) / immediate_1d_avg_players,
+
+      (
+        post_1d_avg_players -
+          immediate_1d_avg_players
+      ) / immediate_1d_avg_players,
+
       NA_real_
     ),
 
     # -------------------------
     # 2-day immediate version
     # -------------------------
+
     immediate_2d_window = list(
-      get_window_stats(game, event_date, 0, 2, steam_daily)
+      get_window_stats(
+        game,
+        event_date,
+        0,
+        2,
+        steam_daily
+      )
     ),
 
     post_2d_window = list(
-      get_window_stats(game, event_date, 3, 7, steam_daily)
+      get_window_stats(
+        game,
+        event_date,
+        3,
+        7,
+        steam_daily
+      )
     ),
 
-    immediate_2d_log_avg_players = immediate_2d_window$mean_log_avg_players,
-    post_2d_log_avg_players = post_2d_window$mean_log_avg_players,
+    immediate_2d_log_avg_players =
+      immediate_2d_window$mean_log_avg_players,
 
-    immediate_2d_avg_players = immediate_2d_window$mean_avg_players,
-    post_2d_avg_players = post_2d_window$mean_avg_players,
+    post_2d_log_avg_players =
+      post_2d_window$mean_log_avg_players,
 
-    n_immediate_2d_days = immediate_2d_window$n_days,
-    n_post_2d_days = post_2d_window$n_days,
+    immediate_2d_avg_players =
+      immediate_2d_window$mean_avg_players,
+
+    post_2d_avg_players =
+      post_2d_window$mean_avg_players,
+
+    n_immediate_2d_days =
+      immediate_2d_window$n_days,
+
+    n_post_2d_days =
+      post_2d_window$n_days,
 
     engagement_lift_2d =
-      immediate_2d_log_avg_players - pre_log_avg_players,
+      immediate_2d_log_avg_players -
+      pre_log_avg_players,
 
     engagement_retention_2d =
-      post_2d_log_avg_players - immediate_2d_log_avg_players,
+      post_2d_log_avg_players -
+      immediate_2d_log_avg_players,
 
     raw_lift_players_2d =
-      immediate_2d_avg_players - pre_avg_players,
+      immediate_2d_avg_players -
+      pre_avg_players,
 
     raw_retention_players_2d =
-      post_2d_avg_players - immediate_2d_avg_players,
+      post_2d_avg_players -
+      immediate_2d_avg_players,
 
     pct_lift_players_2d = if_else(
       pre_avg_players > 0,
-      (immediate_2d_avg_players - pre_avg_players) / pre_avg_players,
+
+      (
+        immediate_2d_avg_players -
+          pre_avg_players
+      ) / pre_avg_players,
+
       NA_real_
     ),
 
     pct_retention_players_2d = if_else(
       immediate_2d_avg_players > 0,
-      (post_2d_avg_players - immediate_2d_avg_players) / immediate_2d_avg_players,
+
+      (
+        post_2d_avg_players -
+          immediate_2d_avg_players
+      ) / immediate_2d_avg_players,
+
       NA_real_
     )
   ) %>%
@@ -527,16 +725,30 @@ outcome_windows <- patch_daily %>%
 merged_data <- patch_daily %>%
   left_join(
     steam_daily,
-    by = c("game", "event_date")
+    by = c(
+      "game",
+      "event_date"
+    )
   ) %>%
   left_join(
     outcome_windows,
-    by = c("game", "event_date")
+    by = c(
+      "game",
+      "event_date"
+    )
   ) %>%
   mutate(
-    log_avg_players = log1p(avg_players),
-    log_lag_avg_players = log1p(lag_avg_players),
-    log_peak_players = log1p(peak_players)
+    log_avg_players = log1p(
+      avg_players
+    ),
+
+    log_lag_avg_players = log1p(
+      lag_avg_players
+    ),
+
+    log_peak_players = log1p(
+      peak_players
+    )
   )
 
 # ============================================================
@@ -548,11 +760,28 @@ cat("\n--- STEAM DAILY CHECK ---\n")
 steam_daily %>%
   group_by(game) %>%
   summarise(
-    min_date = min(event_date, na.rm = TRUE),
-    max_date = max(event_date, na.rm = TRUE),
-    min_avg_obs = min(n_avg_obs_day, na.rm = TRUE),
-    max_avg_obs = max(n_avg_obs_day, na.rm = TRUE),
+    min_date = min(
+      event_date,
+      na.rm = TRUE
+    ),
+
+    max_date = max(
+      event_date,
+      na.rm = TRUE
+    ),
+
+    min_avg_obs = min(
+      n_avg_obs_day,
+      na.rm = TRUE
+    ),
+
+    max_avg_obs = max(
+      n_avg_obs_day,
+      na.rm = TRUE
+    ),
+
     total_days = n(),
+
     .groups = "drop"
   ) %>%
   print(n = Inf)
@@ -563,8 +792,32 @@ patch_daily %>%
   group_by(game) %>%
   summarise(
     patch_days = n(),
-    mean_patch_posts_day = mean(n_patch_posts_day, na.rm = TRUE),
-    max_patch_posts_day = max(n_patch_posts_day, na.rm = TRUE),
+
+    mean_patch_posts_day = mean(
+      n_patch_posts_day,
+      na.rm = TRUE
+    ),
+
+    max_patch_posts_day = max(
+      n_patch_posts_day,
+      na.rm = TRUE
+    ),
+
+    mean_total_chars = mean(
+      total_chars,
+      na.rm = TRUE
+    ),
+
+    mean_total_sentences = mean(
+      total_sentences,
+      na.rm = TRUE
+    ),
+
+    mean_avg_sentence_chars = mean(
+      avg_sentence_chars,
+      na.rm = TRUE
+    ),
+
     .groups = "drop"
   ) %>%
   print(n = Inf)
@@ -574,49 +827,196 @@ cat("\n--- MERGE CHECK ---\n")
 merge_check <- merged_data %>%
   summarise(
     total_patch_days = n(),
-    missing_avg_players = sum(is.na(avg_players)),
-    missing_lag = sum(is.na(lag_avg_players)),
 
-    missing_lift_0d = sum(is.na(engagement_lift_0d)),
-    missing_retention_0d = sum(is.na(engagement_retention_0d)),
+    missing_avg_players = sum(
+      is.na(avg_players)
+    ),
 
-    missing_lift_1d = sum(is.na(engagement_lift_1d)),
-    missing_retention_1d = sum(is.na(engagement_retention_1d)),
+    missing_lag = sum(
+      is.na(lag_avg_players)
+    ),
 
-    missing_lift_2d = sum(is.na(engagement_lift_2d)),
-    missing_retention_2d = sum(is.na(engagement_retention_2d))
+    missing_avg_sentence_chars = sum(
+      is.na(avg_sentence_chars)
+    ),
+
+    missing_lift_0d = sum(
+      is.na(engagement_lift_0d)
+    ),
+
+    missing_retention_0d = sum(
+      is.na(engagement_retention_0d)
+    ),
+
+    missing_lift_1d = sum(
+      is.na(engagement_lift_1d)
+    ),
+
+    missing_retention_1d = sum(
+      is.na(engagement_retention_1d)
+    ),
+
+    missing_lift_2d = sum(
+      is.na(engagement_lift_2d)
+    ),
+
+    missing_retention_2d = sum(
+      is.na(engagement_retention_2d)
+    )
   )
 
 print(merge_check)
+
+cat("\n--- SENTENCE LENGTH CHECK ---\n")
+
+sentence_length_check <- merged_data %>%
+  summarise(
+    min_total_sentences = min(
+      total_sentences,
+      na.rm = TRUE
+    ),
+
+    mean_total_sentences = mean(
+      total_sentences,
+      na.rm = TRUE
+    ),
+
+    max_total_sentences = max(
+      total_sentences,
+      na.rm = TRUE
+    ),
+
+    min_avg_sentence_chars = min(
+      avg_sentence_chars,
+      na.rm = TRUE
+    ),
+
+    mean_avg_sentence_chars = mean(
+      avg_sentence_chars,
+      na.rm = TRUE
+    ),
+
+    median_avg_sentence_chars = median(
+      avg_sentence_chars,
+      na.rm = TRUE
+    ),
+
+    max_avg_sentence_chars = max(
+      avg_sentence_chars,
+      na.rm = TRUE
+    )
+  )
+
+print(sentence_length_check)
 
 cat("\n--- OUTCOME WINDOW DAY COUNTS ---\n")
 
 window_check <- merged_data %>%
   summarise(
-    min_pre_days = min(n_pre_days, na.rm = TRUE),
-    mean_pre_days = mean(n_pre_days, na.rm = TRUE),
-    max_pre_days = max(n_pre_days, na.rm = TRUE),
+    min_pre_days = min(
+      n_pre_days,
+      na.rm = TRUE
+    ),
 
-    min_immediate_0d_days = min(n_immediate_0d_days, na.rm = TRUE),
-    mean_immediate_0d_days = mean(n_immediate_0d_days, na.rm = TRUE),
-    max_immediate_0d_days = max(n_immediate_0d_days, na.rm = TRUE),
-    min_post_0d_days = min(n_post_0d_days, na.rm = TRUE),
-    mean_post_0d_days = mean(n_post_0d_days, na.rm = TRUE),
-    max_post_0d_days = max(n_post_0d_days, na.rm = TRUE),
+    mean_pre_days = mean(
+      n_pre_days,
+      na.rm = TRUE
+    ),
 
-    min_immediate_1d_days = min(n_immediate_1d_days, na.rm = TRUE),
-    mean_immediate_1d_days = mean(n_immediate_1d_days, na.rm = TRUE),
-    max_immediate_1d_days = max(n_immediate_1d_days, na.rm = TRUE),
-    min_post_1d_days = min(n_post_1d_days, na.rm = TRUE),
-    mean_post_1d_days = mean(n_post_1d_days, na.rm = TRUE),
-    max_post_1d_days = max(n_post_1d_days, na.rm = TRUE),
+    max_pre_days = max(
+      n_pre_days,
+      na.rm = TRUE
+    ),
 
-    min_immediate_2d_days = min(n_immediate_2d_days, na.rm = TRUE),
-    mean_immediate_2d_days = mean(n_immediate_2d_days, na.rm = TRUE),
-    max_immediate_2d_days = max(n_immediate_2d_days, na.rm = TRUE),
-    min_post_2d_days = min(n_post_2d_days, na.rm = TRUE),
-    mean_post_2d_days = mean(n_post_2d_days, na.rm = TRUE),
-    max_post_2d_days = max(n_post_2d_days, na.rm = TRUE)
+    min_immediate_0d_days = min(
+      n_immediate_0d_days,
+      na.rm = TRUE
+    ),
+
+    mean_immediate_0d_days = mean(
+      n_immediate_0d_days,
+      na.rm = TRUE
+    ),
+
+    max_immediate_0d_days = max(
+      n_immediate_0d_days,
+      na.rm = TRUE
+    ),
+
+    min_post_0d_days = min(
+      n_post_0d_days,
+      na.rm = TRUE
+    ),
+
+    mean_post_0d_days = mean(
+      n_post_0d_days,
+      na.rm = TRUE
+    ),
+
+    max_post_0d_days = max(
+      n_post_0d_days,
+      na.rm = TRUE
+    ),
+
+    min_immediate_1d_days = min(
+      n_immediate_1d_days,
+      na.rm = TRUE
+    ),
+
+    mean_immediate_1d_days = mean(
+      n_immediate_1d_days,
+      na.rm = TRUE
+    ),
+
+    max_immediate_1d_days = max(
+      n_immediate_1d_days,
+      na.rm = TRUE
+    ),
+
+    min_post_1d_days = min(
+      n_post_1d_days,
+      na.rm = TRUE
+    ),
+
+    mean_post_1d_days = mean(
+      n_post_1d_days,
+      na.rm = TRUE
+    ),
+
+    max_post_1d_days = max(
+      n_post_1d_days,
+      na.rm = TRUE
+    ),
+
+    min_immediate_2d_days = min(
+      n_immediate_2d_days,
+      na.rm = TRUE
+    ),
+
+    mean_immediate_2d_days = mean(
+      n_immediate_2d_days,
+      na.rm = TRUE
+    ),
+
+    max_immediate_2d_days = max(
+      n_immediate_2d_days,
+      na.rm = TRUE
+    ),
+
+    min_post_2d_days = min(
+      n_post_2d_days,
+      na.rm = TRUE
+    ),
+
+    mean_post_2d_days = mean(
+      n_post_2d_days,
+      na.rm = TRUE
+    ),
+
+    max_post_2d_days = max(
+      n_post_2d_days,
+      na.rm = TRUE
+    )
   )
 
 print(window_check)
@@ -627,20 +1027,65 @@ outcome_check <- merged_data %>%
   summarise(
     rows = n(),
 
-    mean_lift_0d = mean(engagement_lift_0d, na.rm = TRUE),
-    sd_lift_0d = sd(engagement_lift_0d, na.rm = TRUE),
-    mean_retention_0d = mean(engagement_retention_0d, na.rm = TRUE),
-    sd_retention_0d = sd(engagement_retention_0d, na.rm = TRUE),
+    mean_lift_0d = mean(
+      engagement_lift_0d,
+      na.rm = TRUE
+    ),
 
-    mean_lift_1d = mean(engagement_lift_1d, na.rm = TRUE),
-    sd_lift_1d = sd(engagement_lift_1d, na.rm = TRUE),
-    mean_retention_1d = mean(engagement_retention_1d, na.rm = TRUE),
-    sd_retention_1d = sd(engagement_retention_1d, na.rm = TRUE),
+    sd_lift_0d = sd(
+      engagement_lift_0d,
+      na.rm = TRUE
+    ),
 
-    mean_lift_2d = mean(engagement_lift_2d, na.rm = TRUE),
-    sd_lift_2d = sd(engagement_lift_2d, na.rm = TRUE),
-    mean_retention_2d = mean(engagement_retention_2d, na.rm = TRUE),
-    sd_retention_2d = sd(engagement_retention_2d, na.rm = TRUE)
+    mean_retention_0d = mean(
+      engagement_retention_0d,
+      na.rm = TRUE
+    ),
+
+    sd_retention_0d = sd(
+      engagement_retention_0d,
+      na.rm = TRUE
+    ),
+
+    mean_lift_1d = mean(
+      engagement_lift_1d,
+      na.rm = TRUE
+    ),
+
+    sd_lift_1d = sd(
+      engagement_lift_1d,
+      na.rm = TRUE
+    ),
+
+    mean_retention_1d = mean(
+      engagement_retention_1d,
+      na.rm = TRUE
+    ),
+
+    sd_retention_1d = sd(
+      engagement_retention_1d,
+      na.rm = TRUE
+    ),
+
+    mean_lift_2d = mean(
+      engagement_lift_2d,
+      na.rm = TRUE
+    ),
+
+    sd_lift_2d = sd(
+      engagement_lift_2d,
+      na.rm = TRUE
+    ),
+
+    mean_retention_2d = mean(
+      engagement_retention_2d,
+      na.rm = TRUE
+    ),
+
+    sd_retention_2d = sd(
+      engagement_retention_2d,
+      na.rm = TRUE
+    )
   )
 
 print(outcome_check)
@@ -652,16 +1097,45 @@ outcome_game_check <- merged_data %>%
   summarise(
     patch_days = n(),
 
-    mean_lift_0d = mean(engagement_lift_0d, na.rm = TRUE),
-    mean_retention_0d = mean(engagement_retention_0d, na.rm = TRUE),
+    mean_lift_0d = mean(
+      engagement_lift_0d,
+      na.rm = TRUE
+    ),
 
-    mean_lift_1d = mean(engagement_lift_1d, na.rm = TRUE),
-    mean_retention_1d = mean(engagement_retention_1d, na.rm = TRUE),
+    mean_retention_0d = mean(
+      engagement_retention_0d,
+      na.rm = TRUE
+    ),
 
-    mean_lift_2d = mean(engagement_lift_2d, na.rm = TRUE),
-    mean_retention_2d = mean(engagement_retention_2d, na.rm = TRUE),
+    mean_lift_1d = mean(
+      engagement_lift_1d,
+      na.rm = TRUE
+    ),
 
-    mean_pre_days = mean(n_pre_days, na.rm = TRUE),
+    mean_retention_1d = mean(
+      engagement_retention_1d,
+      na.rm = TRUE
+    ),
+
+    mean_lift_2d = mean(
+      engagement_lift_2d,
+      na.rm = TRUE
+    ),
+
+    mean_retention_2d = mean(
+      engagement_retention_2d,
+      na.rm = TRUE
+    ),
+
+    mean_pre_days = mean(
+      n_pre_days,
+      na.rm = TRUE
+    ),
+
+    mean_avg_sentence_chars = mean(
+      avg_sentence_chars,
+      na.rm = TRUE
+    ),
 
     .groups = "drop"
   ) %>%
@@ -675,6 +1149,15 @@ merged_data %>%
   select(
     game,
     event_date,
+
+    total_chars,
+    log_total_chars,
+
+    total_sentence_chars,
+    total_sentences,
+    avg_sentence_chars,
+    log_avg_sentence_chars,
+
     avg_players,
     lag_avg_players,
     pre_log_avg_players,
@@ -701,9 +1184,13 @@ merged_data %>%
     n_post_1d_days,
     n_immediate_2d_days,
     n_post_2d_days,
+
     n_patch_posts_day
   ) %>%
-  arrange(game, event_date) %>%
+  arrange(
+    game,
+    event_date
+  ) %>%
   print(n = 20)
 
 # ============================================================
@@ -728,16 +1215,22 @@ merged_data %>%
 # - at least 3 post-days
 #
 # We keep rows that support at least the 0-day version.
-# The model script can filter further depending on which outcome version is used.
+# The model script can filter further depending on which outcome
+# version is used.
 
 final_data <- merged_data %>%
   filter(
     !is.na(avg_players),
     !is.na(lag_avg_players),
+
+    !is.na(log_total_chars),
+    !is.na(log_avg_sentence_chars),
+
     n_pre_days >= 3,
 
     !is.na(engagement_lift_0d),
     !is.na(engagement_retention_0d),
+
     n_immediate_0d_days >= 1,
     n_post_0d_days >= 3
   )
@@ -747,18 +1240,58 @@ cat("\n--- FINAL DATASET CHECK ---\n")
 final_check <- final_data %>%
   summarise(
     final_rows = n(),
+
     games = n_distinct(game),
-    min_date = min(event_date, na.rm = TRUE),
-    max_date = max(event_date, na.rm = TRUE),
 
-    mean_lift_0d = mean(engagement_lift_0d, na.rm = TRUE),
-    mean_retention_0d = mean(engagement_retention_0d, na.rm = TRUE),
+    min_date = min(
+      event_date,
+      na.rm = TRUE
+    ),
 
-    mean_lift_1d = mean(engagement_lift_1d, na.rm = TRUE),
-    mean_retention_1d = mean(engagement_retention_1d, na.rm = TRUE),
+    max_date = max(
+      event_date,
+      na.rm = TRUE
+    ),
 
-    mean_lift_2d = mean(engagement_lift_2d, na.rm = TRUE),
-    mean_retention_2d = mean(engagement_retention_2d, na.rm = TRUE)
+    mean_lift_0d = mean(
+      engagement_lift_0d,
+      na.rm = TRUE
+    ),
+
+    mean_retention_0d = mean(
+      engagement_retention_0d,
+      na.rm = TRUE
+    ),
+
+    mean_lift_1d = mean(
+      engagement_lift_1d,
+      na.rm = TRUE
+    ),
+
+    mean_retention_1d = mean(
+      engagement_retention_1d,
+      na.rm = TRUE
+    ),
+
+    mean_lift_2d = mean(
+      engagement_lift_2d,
+      na.rm = TRUE
+    ),
+
+    mean_retention_2d = mean(
+      engagement_retention_2d,
+      na.rm = TRUE
+    ),
+
+    mean_total_chars = mean(
+      total_chars,
+      na.rm = TRUE
+    ),
+
+    mean_avg_sentence_chars = mean(
+      avg_sentence_chars,
+      na.rm = TRUE
+    )
   )
 
 print(final_check)
@@ -766,7 +1299,10 @@ print(final_check)
 cat("\n--- FINAL ROWS BY GAME ---\n")
 
 final_game_check <- final_data %>%
-  count(game, sort = TRUE)
+  count(
+    game,
+    sort = TRUE
+  )
 
 print(final_game_check, n = Inf)
 
@@ -800,6 +1336,11 @@ write_csv(
 )
 
 write_csv(
+  sentence_length_check,
+  "output/tables/study2/step4_sentence_length_check.csv"
+)
+
+write_csv(
   window_check,
   "output/tables/study2/step4_window_check.csv"
 )
@@ -825,15 +1366,18 @@ write_csv(
 )
 
 cat("\n✅ DONE — FINAL DATASET READY FOR MODELING\n")
-cat("📁 Main modeling file: data_processed/final_patch_dataset.csv\n")
-cat("📁 Supporting files:\n")
-cat("   - data_processed/steam_daily_engagement.csv\n")
-cat("   - data_processed/patch_daily_features.csv\n")
-cat("   - data_processed/patch_engagement_outcomes.csv\n")
-cat("📁 Diagnostics:\n")
-cat("   - results/step4_merge_check.csv\n")
-cat("   - results/step4_window_check.csv\n")
-cat("   - results/step4_outcome_check.csv\n")
-cat("   - results/step4_outcome_game_check.csv\n")
-cat("   - results/step4_final_check.csv\n")
-cat("   - results/step4_final_rows_by_game.csv\n")
+cat("📁 Main modeling file: data/interim/study2/final_patch_dataset.csv\n")
+
+cat("\n📁 Supporting files:\n")
+cat("   - data/interim/study2/steam_daily_engagement.csv\n")
+cat("   - data/interim/study2/patch_daily_features.csv\n")
+cat("   - data/interim/study2/patch_engagement_outcomes.csv\n")
+
+cat("\n📁 Diagnostics:\n")
+cat("   - output/tables/study2/step4_merge_check.csv\n")
+cat("   - output/tables/study2/step4_sentence_length_check.csv\n")
+cat("   - output/tables/study2/step4_window_check.csv\n")
+cat("   - output/tables/study2/step4_outcome_check.csv\n")
+cat("   - output/tables/study2/step4_outcome_game_check.csv\n")
+cat("   - output/tables/study2/step4_final_check.csv\n")
+cat("   - output/tables/study2/step4_final_rows_by_game.csv\n")
