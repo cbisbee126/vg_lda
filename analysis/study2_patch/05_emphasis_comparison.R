@@ -99,6 +99,24 @@ print(comparison_table)
 
 df_long <- comparison_table %>%
   select(lever, consumer, developer) %>%
+  mutate(
+    lever = recode(
+      as.character(lever),
+      "Competitive\nProgression" = "Competitive",
+      "Cosmetics\n& Identity"    = "Cosmetics",
+      "Seasonal\nSystems"        = "Seasonal",
+      "Difficulty\n& Balance"    = "Difficulty/Balance"
+    ),
+    lever = factor(
+      lever,
+      levels = c(
+        "Competitive",
+        "Cosmetics",
+        "Seasonal",
+        "Difficulty/Balance"
+      )
+    )
+  ) %>%
   pivot_longer(
     cols = c(consumer, developer),
     names_to = "Group",
@@ -107,8 +125,15 @@ df_long <- comparison_table %>%
   mutate(
     Group = recode(
       Group,
-      consumer = "Consumer Emphasis",
-      developer = "Developer Emphasis"
+      consumer  = "Player discourse",
+      developer = "Developer communication"
+    ),
+    Group = factor(
+      Group,
+      levels = c(
+        "Player discourse",
+        "Developer communication"
+      )
     )
   )
 
@@ -116,42 +141,83 @@ df_long <- comparison_table %>%
 # 6) PLOT
 # ============================================================
 
-p <- ggplot(df_long, aes(x = lever, y = Weight, fill = Group)) +
-  geom_col(position = "dodge") +
+p <- ggplot(
+  df_long,
+  aes(x = lever, y = Weight, fill = Group)
+) +
+  geom_col(
+    position = position_dodge(width = 0.78),
+    width = 0.68,
+    color = "black",
+    linewidth = 0.35
+  ) +
   geom_text(
-    aes(label = round(Weight, 2)),
-    position = position_dodge(width = 0.9),
-    vjust = -0.25,
-    size = 3
+    aes(label = sprintf("%.2f", Weight)),
+    position = position_dodge(width = 0.78),
+    vjust = -0.35,
+    size = 3.5
   ) +
-  labs(
-    title = "Consumer vs Developer Emphasis on F2P Levers",
-    x = "F2P Design Lever",
-    y = "Normalized Relative Emphasis",
-    fill = NULL
+  scale_x_discrete(
+    labels = c(
+      "Competitive" = "Competitive",
+      "Cosmetics" = "Cosmetics",
+      "Seasonal" = "Seasonal",
+      "Difficulty/Balance" = "Difficulty &\nBalance"
+    )
   ) +
-  theme_minimal() +
+  scale_y_continuous(
+    limits = c(0, 0.52),
+    breaks = seq(0, 0.5, 0.1),
+    expand = expansion(mult = c(0, 0))
+  ) +
   scale_fill_manual(
     values = c(
-      "Consumer Emphasis" = "steelblue",
-      "Developer Emphasis" = "orange"
+      "Player discourse" = "grey25",
+      "Developer communication" = "grey80"
     )
+  ) +
+  labs(
+    x = NULL,
+    y = "Normalized emphasis",
+    fill = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    legend.justification = "center",
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(
+      size = 11,
+      margin = margin(t = 6)
+    ),
+    axis.text.y = element_text(size = 10),
+    axis.title.y = element_text(
+      size = 11,
+      margin = margin(r = 8)
+    ),
+    legend.text = element_text(size = 9),
+    legend.key.width = unit(0.9, "cm"),
+    plot.margin = margin(10, 15, 8, 10)
   )
 
 print(p)
-
 # ============================================================
 # 7) SAVE
 # ============================================================
 
-write_csv(comparison_table, "output/tables/study2/comparison_table.csv")
+write_csv(
+  comparison_table,
+  "output/tables/study2/comparison_table.csv"
+)
 
 ggsave(
   filename = "output/figures/study2/comparison_chart.png",
   plot = p,
-  width = 9,
-  height = 6,
+  width = 8,
+  height = 5,
   dpi = 300
 )
 
-cat("\n✅ DONE — Comparison table and chart saved\n")
+cat("\nDONE — Comparison table and chart saved\n")
+
