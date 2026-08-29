@@ -1,50 +1,51 @@
 # ============================================================
-# 01 BUILD STEAM ANNOUNCEMENT DATASET
-# Goal:
-#   1) Scrape all Steam developer announcements
-#   2) Keep full annotated master dataset
-#   3) Separate all news, broad updates, and strict updates
-#   4) Do NOT code progression levers in this step
+# 01 STEAM UPDATE COMMUNICATION SCRAPE
+# ============================================================
+#
+# PURPOSE
+# -------
+# Retrieve official Steam communications for the eight Study 2
+# games and identify current/live update-related communications.
+#
+# SOURCE RULE
+# -----------
+# Keep only official Steam feeds:
+#   steam_community_announcements
+#   steam_updates
+#
+# SAMPLE RULE
+# -----------
+# Include title-based signals of current/live game changes such
+# as updates, patches, seasons, store changes, rotations, events,
+# releases, and launches. Exclude clear previews/future notices,
+# maintenance/server notices, and unrelated esports/community/
+# promotional posts unless a direct update signal is also present.
+#
+# Multiple qualifying posts for the same game-date are combined.
+# Progression content is NOT used to determine sample eligibility.
+#
+# OUTPUT
+# ------
+# data/interim/study2/update_communication_days.csv
 # ============================================================
 
 rm(list = ls())
 
-# ============================================================
-# 0) PACKAGES
-# ============================================================
+library(httr2)
+library(jsonlite)
+library(dplyr)
+library(stringr)
+library(readr)
+library(lubridate)
+library(tibble)
 
-required_packages <- c(
-  "httr2",
-  "jsonlite",
-  "dplyr",
-  "stringr",
-  "purrr",
-  "readr",
-  "lubridate",
-  "rvest",
-  "tibble"
-)
-
-installed <- rownames(installed.packages())
-
-for (pkg in required_packages) {
-  if (!(pkg %in% installed)) install.packages(pkg)
-}
-
-invisible(lapply(required_packages, library, character.only = TRUE))
-
-cat("✅ Packages ready\n")
-
-# ============================================================
-# 1) PARAMETERS
-# ============================================================
-
-dir.create("data/raw/study2", showWarnings = FALSE, recursive = TRUE)
 dir.create("data/interim/study2", showWarnings = FALSE, recursive = TRUE)
-dir.create("output/tables/study2", showWarnings = FALSE, recursive = TRUE)
-dir.create("output/figures/study2", showWarnings = FALSE, recursive = TRUE)
 
-games <- tibble::tibble(
+# ============================================================
+# 1) GAMES + API SETTINGS
+# ============================================================
+
+games <- tibble(
   game = c(
     "Marvel Rivals",
     "Apex Legends",
@@ -67,653 +68,353 @@ games <- tibble::tibble(
   )
 )
 
-NEWS_COUNT <- 5000
-MIN_CHARS  <- 50
+BATCH_SIZE <- 1000
+MAX_PAGES <- 100
+OFFICIAL_FEEDS <- c(
+  "steam_community_announcements",
+  "steam_updates"
+)
+OFFICIAL_FEEDS_PARAMETER <- paste(OFFICIAL_FEEDS, collapse = ",")
 
 # ============================================================
 # 2) HELPERS
 # ============================================================
 
-extract_announcement_url <- function(url, appid) {
-  id <- stringr::str_extract(url, "\\d+")
+ensure_api_columns <- function(df) {
+  char_vars <- c(
+    "gid", "title", "url", "contents",
+    "author", "feedlabel", "feedname"
+  )
 
-  if (is.na(id)) return(url)
-
-  paste0("https://store.steampowered.com/news/app/", appid, "/view/", id)
-}
-
-safe_read_html <- function(url) {
-  tryCatch({
-    Sys.sleep(0.3)
-
-    httr2::request(url) |>
-      httr2::req_user_agent("Mozilla/5.0") |>
-      httr2::req_perform() |>
-      httr2::resp_body_html()
-
-  }, error = function(e) {
-    message("❌ Failed: ", url)
-    return(NULL)
-  })
-}
-
-extract_full_text <- function(url) {
-  pg <- safe_read_html(url)
-
-  if (is.null(pg)) return(NA_character_)
-
-  txt <- pg |>
-    rvest::html_elements(".body") |>
-    rvest::html_text2()
-
-  if (length(txt) == 0) return(NA_character_)
-
-  txt <- paste(txt, collapse = "\n") |>
-    stringr::str_squish()
-
-  if (nchar(txt) < MIN_CHARS) return(NA_character_)
-
-  txt
-}
-
-needs_fallback <- function(txt) {
-  is.na(txt) ||
-    txt == "" ||
-    stringr::str_detect(txt, "\\.\\.\\.$")
-}
-
-make_event_id <- function(game, raw_id, title) {
-  if (!is.na(raw_id) && raw_id != "") {
-    return(paste0("steam_", raw_id))
+  for (x in char_vars) {
+    if (!(x %in% names(df))) df[[x]] <- NA_character_
   }
 
-  safe_game <- stringr::str_replace_all(
-    stringr::str_to_lower(game),
-    "[^a-z0-9]+",
-    "_"
-  )
-
-  safe_title <- stringr::str_replace_all(
-    stringr::str_to_lower(title),
-    "[^a-z0-9]+",
-    "_"
-  )
-
-  paste0(safe_game, "_", safe_title)
+  if (!("date" %in% names(df))) df$date <- NA_real_
+  df
 }
 
-add_time_vars <- function(df) {
-  df |>
-    dplyr::arrange(game, event_date) |>
-    dplyr::group_by(game) |>
-    dplyr::mutate(
-      year                      = lubridate::year(event_date),
-      month                     = lubridate::month(event_date),
-      announcement_number       = dplyr::row_number(),
-      days_since_last_event     = as.numeric(event_date - dplyr::lag(event_date)),
-      log_days_since_last_event = log1p(days_since_last_event)
+fetch_news_page <- function(app_id, enddate = NULL) {
+  req <- request(
+    "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/"
+  ) |>
+    req_url_query(
+      appid = app_id,
+      count = BATCH_SIZE,
+      maxlength = 0,
+      feeds = OFFICIAL_FEEDS_PARAMETER,
+      format = "json"
     ) |>
-    dplyr::ungroup()
-}
+    req_user_agent("Mozilla/5.0") |>
+    req_retry(max_tries = 3)
 
-collapse_one_post_per_game_day <- function(df) {
-  df |>
-    dplyr::group_by(game, event_date) |>
-    dplyr::arrange(
-      dplyr::desc(strict_update),
-      dplyr::desc(broad_update),
-      dplyr::desc(char_count),
-      .by_group = TRUE
-    ) |>
-    dplyr::slice(1) |>
-    dplyr::ungroup()
-}
-
-# ============================================================
-# 3) MAIN SCRAPE LOOP
-# ============================================================
-
-all_data <- vector("list", nrow(games))
-
-for (i in seq_len(nrow(games))) {
-
-  game_name <- games$game[i]
-  app_id    <- games$appid[i]
-
-  cat("\n🚀 Scraping:", game_name, "\n")
-
-  api_url <- paste0(
-    "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/",
-    "?appid=", app_id,
-    "&count=", NEWS_COUNT,
-    "&maxlength=0",
-    "&format=json"
-  )
-
-  resp <- tryCatch({
-    httr2::request(api_url) |>
-      httr2::req_user_agent("Mozilla/5.0") |>
-      httr2::req_perform()
-  }, error = function(e) {
-    message("❌ API request failed for ", game_name)
-    return(NULL)
-  })
-
-  if (is.null(resp)) {
-    all_data[[i]] <- tibble::tibble()
-    next
+  if (!is.null(enddate)) {
+    req <- req |> req_url_query(enddate = enddate)
   }
 
-  json <- jsonlite::fromJSON(
-    httr2::resp_body_string(resp),
+  response <- tryCatch(
+    req |> req_perform(),
+    error = function(e) {
+      message("API request failed for appid ", app_id, ": ", conditionMessage(e))
+      NULL
+    }
+  )
+
+  if (is.null(response)) return(tibble())
+
+  json <- fromJSON(
+    resp_body_string(response),
     simplifyDataFrame = TRUE
   )
 
-  if (length(json$appnews$newsitems) == 0) {
-    all_data[[i]] <- tibble::tibble()
-    next
-  }
+  newsitems <- json$appnews$newsitems
+  if (is.null(newsitems) || length(newsitems) == 0) return(tibble())
 
-  df <- tibble::as_tibble(json$appnews$newsitems) |>
-    dplyr::transmute(
-      game         = game_name,
-      raw_event_id = as.character(gid),
-      event_date   = as.Date(lubridate::as_datetime(date)),
-      patch_title  = stringr::str_squish(title),
-      source_url   = url,
-      api_contents = stringr::str_squish(contents)
+  ensure_api_columns(as_tibble(newsitems))
+}
+
+clean_news_page <- function(df, game_name, app_id) {
+  if (nrow(df) == 0) return(tibble())
+
+  df |>
+    transmute(
+      game = game_name,
+      appid = app_id,
+      announcement_id = as.character(gid),
+      unix_date = as.numeric(date),
+      event_date = as.Date(as_datetime(date)),
+      title = str_squish(coalesce(as.character(title), "")),
+      full_text = str_squish(coalesce(as.character(contents), "")),
+      feedname = str_to_lower(str_squish(coalesce(as.character(feedname), ""))),
+      feedlabel = str_to_lower(str_squish(coalesce(as.character(feedlabel), ""))),
+      author = str_squish(coalesce(as.character(author), "")),
+      source_url = coalesce(as.character(url), "")
+    ) |>
+    filter(
+      !is.na(event_date),
+      announcement_id != ""
     )
-
-  df <- df |>
-    dplyr::mutate(
-      true_url = purrr::map_chr(
-        source_url,
-        ~ extract_announcement_url(.x, app_id)
-      )
-    )
-
-  df <- df |>
-    dplyr::mutate(
-      full_text = purrr::pmap_chr(
-        list(true_url, api_contents),
-        function(url, txt) {
-          if (needs_fallback(txt)) {
-            scraped <- extract_full_text(url)
-            if (!is.na(scraped)) return(scraped)
-          }
-
-          txt
-        }
-      )
-    ) |>
-    dplyr::mutate(
-      full_text   = stringr::str_squish(full_text),
-      patch_title = stringr::str_squish(patch_title)
-    ) |>
-    dplyr::filter(
-      !is.na(full_text),
-      full_text != ""
-    ) |>
-    dplyr::mutate(
-      char_count     = nchar(full_text, type = "chars"),
-      word_count     = stringr::str_count(full_text, "\\S+"),
-      log_char_count = log1p(char_count),
-      source_type    = "steam"
-    ) |>
-    dplyr::filter(char_count >= MIN_CHARS) |>
-    dplyr::mutate(
-      event_id = purrr::pmap_chr(
-        list(game, raw_event_id, patch_title),
-        make_event_id
-      )
-    ) |>
-    dplyr::select(
-      game,
-      event_id,
-      event_date,
-      patch_title,
-      source_url,
-      true_url,
-      full_text,
-      char_count,
-      word_count,
-      log_char_count,
-      source_type
-    )
-
-  all_data[[i]] <- df
 }
 
 # ============================================================
-# 4) COMBINE + CLEAN MASTER ANNOUNCEMENT DATASET
+# 3) SCRAPE COMPLETE OFFICIAL HISTORY
 # ============================================================
 
-news_raw <- dplyr::bind_rows(all_data) |>
-  dplyr::filter(
-    !is.na(event_date),
-    !is.na(patch_title),
-    patch_title != ""
-  ) |>
-  dplyr::mutate(
-    patch_title = stringr::str_squish(patch_title),
-    full_text   = stringr::str_squish(full_text),
-    title_lower = stringr::str_to_lower(patch_title),
-    text_all    = stringr::str_to_lower(paste(patch_title, full_text))
-  ) |>
-  dplyr::arrange(game, event_date) |>
-  dplyr::distinct(game, event_id, .keep_all = TRUE)
+all_game_posts <- vector("list", nrow(games))
+pagination_audit <- vector("list", nrow(games))
 
-cat("\n✅ Combined master announcement rows:", nrow(news_raw), "\n")
+for (i in seq_len(nrow(games))) {
+  game_name <- games$game[i]
+  app_id <- games$appid[i]
 
-# ============================================================
-# 5) ANNOUNCEMENT-TYPE PATTERNS ONLY
-# No progression-lever coding in this script
-# ============================================================
+  cat("\n============================================================\n")
+  cat("SCRAPING:", game_name, "\n")
+  cat("============================================================\n")
 
-# Broad update language.
-# This identifies general developer update communications.
-broad_update_pattern <- paste(
-  c(
-    "update",
-    "updates",
-    "patch",
-    "patches",
-    "patch notes",
-    "patch note",
-    "hotfix",
-    "hot fix",
-    "notes",
-    "release notes",
-    "balance update",
-    "balance patch"
-  ),
-  collapse = "|"
-)
+  pages <- list()
+  page_number <- 1
+  current_enddate <- NULL
+  seen_ids <- character()
+  stop_reason <- NA_character_
 
-# Strict version indicators.
-# This identifies posts that look like formal/versioned updates.
-version_pattern <- paste(
-  c(
-    # v2.47, v.2.47, v 2.47
-    "\\bv\\.?\\s*\\d+(\\.\\d+)+\\b",
+  while (page_number <= MAX_PAGES) {
+    raw_page <- fetch_news_page(app_id, current_enddate)
 
-    # version 2.47
-    "\\bversion\\s*\\d+(\\.\\d+)+\\b",
+    if (nrow(raw_page) == 0) {
+      stop_reason <- "no_more_posts"
+      break
+    }
 
-    # patch 2.47, patch notes 2.47
-    "\\bpatch\\s*(notes?)?\\s*\\d+(\\.\\d+)+\\b",
+    page <- clean_news_page(raw_page, game_name, app_id)
+    page_new <- page |> filter(!(announcement_id %in% seen_ids))
 
-    # update 2.47
-    "\\bupdate\\s*\\d+(\\.\\d+)+\\b",
+    cat("Page", page_number, "- new rows:", nrow(page_new), "\n")
 
-    # hotfix 2.47, hotfix #12
-    "\\bhot\\s*fix\\s*#?\\s*\\d+(\\.\\d+)*\\b",
-    "\\bhotfix\\s*#?\\s*\\d+(\\.\\d+)*\\b",
+    if (nrow(page_new) == 0) {
+      stop_reason <- "no_new_posts"
+      break
+    }
 
-    # build 12345
-    "\\bbuild\\s*\\d+\\b",
+    pages[[page_number]] <- page_new
+    seen_ids <- c(seen_ids, page_new$announcement_id)
 
-    # 2.47 Patch Notes
-    "\\b\\d+(\\.\\d+)+\\s*patch\\s*notes?\\b",
+    if (nrow(raw_page) < BATCH_SIZE) {
+      stop_reason <- "complete"
+      break
+    }
 
-    # 2.47 Update
-    "\\b\\d+(\\.\\d+)+\\s*update\\b",
+    oldest_timestamp <- min(page$unix_date, na.rm = TRUE)
+    new_enddate <- oldest_timestamp - 1
 
-    # Update 1, Update 2, etc.
-    "\\bupdate\\s*#?\\s*\\d+\\b",
+    if (!is.null(current_enddate) && new_enddate >= current_enddate) {
+      stop_reason <- "pagination_failed"
+      break
+    }
 
-    # Patch 1, Patch 2, etc.
-    "\\bpatch\\s*#?\\s*\\d+\\b"
-  ),
-  collapse = "|"
-)
+    current_enddate <- new_enddate
+    page_number <- page_number + 1
+    Sys.sleep(0.2)
+  }
 
-# Strict title language.
-# This catches formal patch-note posts even without version numbers.
-strict_update_title_pattern <- paste(
-  c(
-    "patch notes",
-    "patch note",
-    "hotfix",
-    "hot fix",
-    "release notes",
-    "balance patch",
-    "balance update"
-  ),
-  collapse = "|"
-)
+  game_posts <- bind_rows(pages) |>
+    distinct(announcement_id, .keep_all = TRUE)
 
-# General news/promo exclusions.
-# These are not removed from the master file.
-# They are only prevented from being classified as broad/strict update datasets.
-exclude_pattern <- paste(
-  c(
-    "giveaway",
-    "sweepstakes",
-    "trailer",
-    "teaser",
-    "soundtrack",
-    "merch",
-    "merchandise",
-    "fan art",
-    "art contest",
-    "creator spotlight",
-    "community spotlight",
-    "tournament",
-    "championship",
-    "esports",
-    "e-sports",
-    "sale",
-    "discount",
-    "free weekend",
-    "wishlist",
-    "dev diary",
-    "developer diary",
-    "behind the scenes"
-  ),
-  collapse = "|"
-)
+  all_game_posts[[i]] <- game_posts
+  pagination_audit[[i]] <- tibble(
+    game = game_name,
+    official_posts = nrow(game_posts),
+    first_date = if (nrow(game_posts) > 0) min(game_posts$event_date) else as.Date(NA),
+    last_date = if (nrow(game_posts) > 0) max(game_posts$event_date) else as.Date(NA),
+    stop_reason = stop_reason
+  )
+}
 
-soft_news_pattern <- paste(
-  c(
-    "announcement",
-    "community",
-    "spotlight",
-    "event",
-    "trailer",
-    "teaser",
-    "sale",
-    "esports",
-    "tournament",
-    "championship",
-    "contest",
-    "giveaway",
-    "developer diary",
-    "dev diary"
-  ),
-  collapse = "|"
-)
+official_posts <- bind_rows(all_game_posts) |>
+  distinct(game, announcement_id, .keep_all = TRUE) |>
+  arrange(game, event_date)
+
+pagination_check <- bind_rows(pagination_audit)
+
+cat("\n--- PAGINATION CHECK ---\n")
+print(pagination_check, n = Inf, width = Inf)
+
+if (any(pagination_check$stop_reason == "pagination_failed")) {
+  stop("Pagination failed for at least one game.")
+}
+
+unexpected <- official_posts |>
+  filter(!(feedname %in% OFFICIAL_FEEDS))
+
+if (nrow(unexpected) > 0) {
+  stop("Unexpected non-official feed entered the sample.")
+}
+
+cat("\n--- OFFICIAL SOURCE CHECK ---\n")
+official_posts |>
+  count(game, feedname, sort = TRUE) |>
+  print(n = Inf, width = Inf)
 
 # ============================================================
-# 6) FLAGS — ANNOUNCEMENT TYPE ONLY
+# 4) TITLE-BASED UPDATE-COMMUNICATION RULE
 # ============================================================
 
-news_annotated <- news_raw |>
-  dplyr::mutate(
-    exclude_hit =
-      stringr::str_detect(title_lower, exclude_pattern),
+update_pattern <- paste0(
+  "\\b(",
+  "update|updates|patch|patches|patch notes|hotfix|hot fix|",
+  "season|midseason|mid-season|",
+  "store update|shop update|store rotation|shop rotation|rotation|",
+  "event|release notes|",
+  "now live|is live|goes live|live now|available now|out now|",
+  "released|launch|launches|launched|begins|starts|arrives|is here",
+  ")\\b"
+)
 
-    soft_news_hit =
-      stringr::str_detect(title_lower, soft_news_pattern),
+future_pattern <- paste0(
+  "\\b(",
+  "preview|roadmap|teaser|trailer|coming soon|coming next|",
+  "coming tomorrow|coming next week|upcoming|first look|",
+  "reveal date|reveals? on|dev diary|developer diary|devblog|",
+  "in development|livestream|live stream",
+  ")\\b"
+)
 
-    broad_update_hit =
-      stringr::str_detect(title_lower, broad_update_pattern) |
-      stringr::str_detect(text_all, broad_update_pattern),
+maintenance_pattern <- paste0(
+  "\\b(",
+  "maintenance|server status|scheduled downtime|downtime|outage|",
+  "server maintenance|server update",
+  ")\\b"
+)
 
-    # Version search is title-based to avoid false positives from body numbers.
-    version_hit =
-      stringr::str_detect(title_lower, version_pattern),
+esports_pattern <- paste0(
+  "\\b(",
+  "esports?|tournament|championship|qualifier|qualifiers|",
+  "pro league|global series|world championship|grand finals|",
+  "match schedule|tournament recap",
+  ")\\b"
+)
 
-    # Strict update title search is title-based.
-    strict_update_title_hit =
-      stringr::str_detect(title_lower, strict_update_title_pattern),
+other_exclude_pattern <- paste0(
+  "\\b(",
+  "twitch drops?|drop campaign|giveaway|pre-order|preorder|",
+  "merchandise|screenshot competition|community spotlight|",
+  "weekly bans? notice|ban notice",
+  ")\\b"
+)
 
-    # Category 1: all news
-    all_news =
-      TRUE,
+direct_update_pattern <- paste0(
+  "\\b(",
+  "update|updates|patch|patches|hotfix|hot fix|",
+  "season|midseason|mid-season|store update|shop update|rotation|",
+  "now live|is live|goes live|released|launches|launched",
+  ")\\b"
+)
 
-    # Category 2: broad updates
-    broad_update =
-      broad_update_hit & !exclude_hit,
-
-    # Category 3: strict updates
-    strict_update =
-      !exclude_hit &
-      (
-        version_hit |
-        strict_update_title_hit
-      ),
-
-    announcement_category = dplyr::case_when(
-      strict_update ~ "strict_update",
-      broad_update ~ "broad_update",
-      exclude_hit ~ "excluded_news_or_promo",
-      soft_news_hit ~ "soft_news",
-      TRUE ~ "general_announcement"
-    )
+classified_posts <- official_posts |>
+  mutate(
+    title_lower = str_to_lower(title),
+    update_signal = str_detect(title_lower, update_pattern),
+    direct_update_signal = str_detect(title_lower, direct_update_pattern),
+    future_signal = str_detect(title_lower, future_pattern),
+    maintenance_signal = str_detect(title_lower, maintenance_pattern),
+    esports_signal = str_detect(title_lower, esports_pattern),
+    other_exclude_signal = str_detect(title_lower, other_exclude_pattern),
+    update_communication =
+      update_signal &
+      !future_signal &
+      !maintenance_signal &
+      !(esports_signal & !direct_update_signal) &
+      !(other_exclude_signal & !direct_update_signal)
   )
 
 # ============================================================
-# 7) CREATE OUTPUT DATASETS
+# 5) AUDIT + COLLAPSE TO ONE GAME-DAY
 # ============================================================
 
-# 7A. Full master file
-all_news <- news_annotated
+audit <- classified_posts |>
+  summarise(
+    official_posts = n(),
+    update_related = sum(update_signal),
+    future_excluded = sum(update_signal & future_signal),
+    maintenance_excluded = sum(update_signal & maintenance_signal),
+    final_update_posts = sum(update_communication)
+  )
 
-# 7B. Broad update dataset
-broad_updates <- news_annotated |>
-  dplyr::filter(broad_update) |>
-  collapse_one_post_per_game_day()
+cat("\n--- UPDATE COMMUNICATION AUDIT ---\n")
+print(audit, width = Inf)
 
-# 7C. Strict update dataset
-strict_updates <- news_annotated |>
-  dplyr::filter(strict_update) |>
-  collapse_one_post_per_game_day()
-
-# ============================================================
-# 8) ADD TIME VARIABLES
-# ============================================================
-
-all_news       <- add_time_vars(all_news)
-broad_updates  <- add_time_vars(broad_updates)
-strict_updates <- add_time_vars(strict_updates)
-
-# ============================================================
-# 9) VALIDATION
-# ============================================================
-
-cat("\n============================================================\n")
-cat("MASTER ANNOUNCEMENT VALIDATION\n")
-cat("============================================================\n")
-
-cat("\n📊 Master rows per game:\n")
-print(all_news |> dplyr::count(game, sort = TRUE))
-
-cat("\n📊 Master date range:\n")
-print(
-  all_news |>
-    dplyr::summarise(
-      min_date = min(event_date, na.rm = TRUE),
-      max_date = max(event_date, na.rm = TRUE)
-    )
-)
-
-cat("\n📊 Step 1 flag summary by game:\n")
-flag_summary <- all_news |>
-  dplyr::group_by(game) |>
-  dplyr::summarise(
-    total_news_rows             = dplyr::n(),
-    broad_update_hit_rows       = sum(broad_update_hit, na.rm = TRUE),
-    broad_update_rows           = sum(broad_update, na.rm = TRUE),
-    version_rows                = sum(version_hit, na.rm = TRUE),
-    strict_update_title_rows    = sum(strict_update_title_hit, na.rm = TRUE),
-    strict_update_rows          = sum(strict_update, na.rm = TRUE),
-    excluded_rows               = sum(exclude_hit, na.rm = TRUE),
-    soft_news_rows              = sum(soft_news_hit, na.rm = TRUE),
+cat("\n--- QUALIFYING POSTS BY GAME ---\n")
+classified_posts |>
+  group_by(game) |>
+  summarise(
+    official_posts = n(),
+    qualifying_posts = sum(update_communication),
+    pct_qualifying = mean(update_communication),
     .groups = "drop"
   ) |>
-  dplyr::mutate(
-    pct_broad_update = broad_update_rows / total_news_rows,
-    pct_strict_update = strict_update_rows / total_news_rows
+  arrange(desc(qualifying_posts)) |>
+  print(n = Inf, width = Inf)
+
+update_posts <- classified_posts |>
+  filter(update_communication)
+
+update_days <- update_posts |>
+  group_by(game, appid, event_date) |>
+  summarise(
+    n_update_posts = n(),
+    announcement_ids = paste(announcement_id, collapse = " | "),
+    titles = paste(unique(title), collapse = " || "),
+    combined_text = paste(
+      str_squish(paste(title, full_text)),
+      collapse = "\n\n"
+    ),
+    .groups = "drop"
   ) |>
-  dplyr::arrange(dplyr::desc(total_news_rows))
-
-print(flag_summary, n = Inf)
-
-cat("\n📊 Announcement category summary:\n")
-category_summary <- all_news |>
-  dplyr::count(game, announcement_category, sort = TRUE)
-
-print(category_summary, n = Inf)
-
-cat("\n============================================================\n")
-cat("CONVENIENCE DATASET VALIDATION\n")
-cat("============================================================\n")
-
-cat("\n📊 Broad updates per game:\n")
-print(broad_updates |> dplyr::count(game, sort = TRUE))
-
-cat("\n📊 Strict updates per game:\n")
-print(strict_updates |> dplyr::count(game, sort = TRUE))
-
-cat("\n📊 Same-day multiple posts after collapse — broad updates:\n")
-print(
-  broad_updates |>
-    dplyr::count(game, event_date, sort = TRUE) |>
-    dplyr::filter(n > 1)
-)
-
-cat("\n📊 Same-day multiple posts after collapse — strict updates:\n")
-print(
-  strict_updates |>
-    dplyr::count(game, event_date, sort = TRUE) |>
-    dplyr::filter(n > 1)
-)
-
-# ============================================================
-# 10) SAMPLE TITLES FOR MANUAL CHECKING
-# ============================================================
-
-cat("\n============================================================\n")
-cat("MANUAL CHECK: SAMPLE TITLES\n")
-cat("============================================================\n")
-
-cat("\n🔎 Sample strict update titles:\n")
-strict_sample <- strict_updates |>
-  dplyr::select(game, event_date, patch_title, announcement_category, char_count) |>
-  dplyr::arrange(game, dplyr::desc(event_date)) |>
-  dplyr::group_by(game) |>
-  dplyr::slice_head(n = 8) |>
-  dplyr::ungroup()
-
-print(strict_sample, n = 80)
-
-cat("\n🔎 Sample broad update titles that are NOT strict updates:\n")
-broad_not_strict_sample <- all_news |>
-  dplyr::filter(
-    broad_update,
-    !strict_update
+  mutate(
+    update_id = paste0(
+      str_replace_all(str_to_lower(game), "[^a-z0-9]+", "_"),
+      "__",
+      format(event_date, "%Y%m%d")
+    ),
+    text_chars = nchar(combined_text)
   ) |>
-  dplyr::select(game, event_date, patch_title, announcement_category, char_count) |>
-  dplyr::arrange(game, dplyr::desc(event_date)) |>
-  dplyr::group_by(game) |>
-  dplyr::slice_head(n = 8) |>
-  dplyr::ungroup()
+  select(
+    game, appid, update_id, event_date,
+    n_update_posts, announcement_ids, titles,
+    combined_text, text_chars
+  ) |>
+  arrange(game, event_date)
 
-print(broad_not_strict_sample, n = 80)
+if (nrow(update_days |> count(game, event_date) |> filter(n > 1)) > 0) {
+  stop("Duplicate game-date events remain after same-day collapse.")
+}
 
-cat("\n🔎 Sample excluded titles:\n")
-excluded_sample <- all_news |>
-  dplyr::filter(exclude_hit) |>
-  dplyr::select(game, event_date, patch_title, announcement_category, char_count) |>
-  dplyr::arrange(game, dplyr::desc(event_date)) |>
-  dplyr::group_by(game) |>
-  dplyr::slice_head(n = 5) |>
-  dplyr::ungroup()
+if (any(is.na(update_days$combined_text) | update_days$combined_text == "")) {
+  warning("At least one update day has no usable text.")
+}
 
-print(excluded_sample, n = 80)
-
-# ============================================================
-# 11) SAVE FILES
-# ============================================================
-
-# Full master annotated announcement file
-readr::write_csv(
-  all_news,
-  "data/raw/study2/all_games_news_annotated.csv"
-)
-
-readr::write_csv(
-  all_news,
-  "data/interim/study2/all_games_news_annotated.csv"
-)
-
-# Broad update file
-readr::write_csv(
-  broad_updates,
-  "data/raw/study2/all_games_broad_updates.csv"
-)
-
-readr::write_csv(
-  broad_updates,
-  "data/interim/study2/all_games_broad_updates.csv"
-)
-
-# Strict update file
-readr::write_csv(
-  strict_updates,
-  "data/raw/study2/all_games_strict_updates.csv"
-)
-
-readr::write_csv(
-  strict_updates,
-  "data/interim/study2/all_games_strict_updates.csv"
-)
-
-# Diagnostics
-readr::write_csv(
-  flag_summary,
-  "output/tables/study2/step1_flag_summary_by_game.csv"
-)
-
-readr::write_csv(
-  category_summary,
-  "output/tables/study2/step1_announcement_category_summary.csv"
-)
-
-readr::write_csv(
-  strict_sample,
-  "output/tables/study2/step1_sample_strict_update_titles.csv"
-)
-
-readr::write_csv(
-  broad_not_strict_sample,
-  "output/tables/study2/step1_sample_broad_not_strict_titles.csv"
-)
-
-readr::write_csv(
-  excluded_sample,
-  "output/tables/study2/step1_sample_excluded_titles.csv"
-)
+cat("\n--- FINAL UPDATE-COMMUNICATION SAMPLE ---\n")
+update_days |>
+  group_by(game) |>
+  summarise(
+    update_days = n(),
+    first_update = min(event_date),
+    last_update = max(event_date),
+    mean_posts_per_day = mean(n_update_posts),
+    median_text_chars = median(text_chars),
+    .groups = "drop"
+  ) |>
+  arrange(desc(update_days)) |>
+  print(n = Inf, width = Inf)
 
 # ============================================================
-# 12) FINAL MESSAGE
+# 6) SAVE ONE FILE
 # ============================================================
 
-cat("\n============================================================\n")
-cat("✅ DONE — Step 1 Steam announcement datasets created\n")
-cat("============================================================\n")
+output_file <- "data/interim/study2/update_communication_days.csv"
+write_csv(update_days, output_file)
 
-cat("\n📁 All news files:\n")
-cat("   - data_raw/all_games_news_annotated.csv\n")
-cat("   - data_processed/all_games_news_annotated.csv\n")
-
-cat("\n📁 Broad update files:\n")
-cat("   - data_raw/all_games_broad_updates.csv\n")
-cat("   - data_processed/all_games_broad_updates.csv\n")
-
-cat("\n📁 Strict update files:\n")
-cat("   - data_raw/all_games_strict_updates.csv\n")
-cat("   - data_processed/all_games_strict_updates.csv\n")
-
-cat("\n📁 Diagnostic files:\n")
-cat("   - results/step1_flag_summary_by_game.csv\n")
-cat("   - results/step1_announcement_category_summary.csv\n")
-cat("   - results/step1_sample_strict_update_titles.csv\n")
-cat("   - results/step1_sample_broad_not_strict_titles.csv\n")
-cat("   - results/step1_sample_excluded_titles.csv\n")
-
-cat("\n🎯 All news rows:", nrow(all_news), "\n")
-cat("🎯 Broad update rows:", nrow(broad_updates), "\n")
-cat("🎯 Strict update rows:", nrow(strict_updates), "\n")
-
+cat("\nDONE - Step 01\n")
+cat("Official posts examined:", nrow(official_posts), "\n")
+cat("Qualifying update posts:", nrow(update_posts), "\n")
+cat("Final update-communication days:", nrow(update_days), "\n")
+cat("Saved:", output_file, "\n")

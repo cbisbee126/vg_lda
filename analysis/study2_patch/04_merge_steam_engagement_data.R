@@ -1,28 +1,149 @@
 # ============================================================
-# 04 MERGE PATCH-DAY FEATURES WITH STEAM DAILY ENGAGEMENT
-# Creates 0-day, 1-day, and 2-day lift/retention outcomes
+# 04 BUILD STUDY 2 ENGAGEMENT DATA
+# ============================================================
+#
+# PURPOSE
+# -------
+# Merge communication features with daily Steam engagement and
+# create the analysis datasets used in Step 06.
+#
+# ANALYSES SUPPORTED
+# ------------------
+#
+# 1) PRIMARY PRE/POST MODEL - EXCLUDES DAY 0
+#
+#    Pre  = mean logged engagement on Days -3 to -1
+#    Post = mean logged engagement on Days +1 to +3
+#
+#    Change = Post - Pre
+#
+#    Day 0 is excluded because communications can occur at
+#    different times within the calendar day.
+#
+#
+# 2) DAY 0 SENSITIVITY MODEL
+#
+#    Pre  = mean logged engagement on Days -3 to -1
+#    Post = mean logged engagement on Days 0 to +2
+#
+#    Change = Post - Pre
+#
+#    This keeps the pre- and post-periods the same length while
+#    testing whether results depend on excluding Day 0.
+#
+#
+# 3) DAILY DISTRIBUTED-LAG ROBUSTNESS MODEL
+#
+#    One row per actual game-date.
+#
+#    Step 06 will estimate communication exposure on:
+#      Day 0
+#      Day +1
+#      Day +2
+#      Day +3
+#
+#    Recent communications enter simultaneously so nearby
+#    communications do not need to be treated as isolated events.
+#
+#
+# IMPORTANT
+# ---------
+# The complete calendar is retained so a one-day lag always
+# represents one actual calendar day rather than the previous
+# observed Steam row.
+#
+#
+# OUTPUT
+# ------
+# data/interim/study2/study2_analysis_data.rds
+#
+# The saved object contains:
+#   event_data
+#   daily_panel
+#   steam_coverage
+#
 # ============================================================
 
+
 rm(list = ls())
+
+
+# ============================================================
+# 0) PACKAGES
+# ============================================================
 
 library(tidyverse)
 library(lubridate)
 library(readr)
 
-dir.create("data/interim/study2", showWarnings = FALSE, recursive = TRUE)
-dir.create("output/tables/study2", showWarnings = FALSE, recursive = TRUE)
-dir.create("output/figures/study2", showWarnings = FALSE, recursive = TRUE)
 
 # ============================================================
-# HELPER: SAFE DATETIME PARSER
+# 1) OUTPUT DIRECTORY + HELPERS
 # ============================================================
+
+dir.create(
+  "data/interim/study2",
+  showWarnings = FALSE,
+  recursive = TRUE
+)
+
+
+# ------------------------------------------------------------
+# Standardize a numeric variable
+# ------------------------------------------------------------
+
+scale2 <- function(x) {
+
+  x_mean <- mean(
+    x,
+    na.rm = TRUE
+  )
+
+  x_sd <- sd(
+    x,
+    na.rm = TRUE
+  )
+
+  if (
+    is.na(x_sd) ||
+    x_sd == 0
+  ) {
+
+    return(
+      rep(
+        0,
+        length(x)
+      )
+    )
+  }
+
+  as.numeric(
+    (x - x_mean) / x_sd
+  )
+}
+
+
+# ------------------------------------------------------------
+# Safe Steam datetime parser
+# ------------------------------------------------------------
 
 parse_steam_datetime <- function(x) {
-  x <- as.character(x)
-  x <- trimws(x)
+
+  x <- trimws(
+    as.character(x)
+  )
+
   x[x == ""] <- NA_character_
 
-  out <- rep(as.POSIXct(NA, tz = "UTC"), length(x))
+
+  out <- rep(
+    as.POSIXct(
+      NA,
+      tz = "UTC"
+    ),
+    length(x)
+  )
+
 
   formats <- c(
     "%Y-%m-%d %H:%M:%S",
@@ -38,12 +159,17 @@ parse_steam_datetime <- function(x) {
     "%Y-%m-%dT%H:%M:%SZ"
   )
 
+
   for (fmt in formats) {
-    needs_parse <- is.na(out) & !is.na(x)
+
+    needs_parse <-
+      is.na(out) &
+      !is.na(x)
 
     if (!any(needs_parse)) {
       break
     }
+
 
     parsed <- suppressWarnings(
       as.POSIXct(
@@ -53,14 +179,32 @@ parse_steam_datetime <- function(x) {
       )
     )
 
-    idx <- which(needs_parse)
 
-    out[idx[!is.na(parsed)]] <- parsed[!is.na(parsed)]
+    idx <- which(
+      needs_parse
+    )
+
+
+    out[
+      idx[
+        !is.na(parsed)
+      ]
+    ] <-
+      parsed[
+        !is.na(parsed)
+      ]
   }
 
-  needs_parse <- is.na(out) & !is.na(x)
+
+  # Final generic parse attempt
+
+  needs_parse <-
+    is.na(out) &
+    !is.na(x)
+
 
   if (any(needs_parse)) {
+
     parsed <- suppressWarnings(
       as.POSIXct(
         x[needs_parse],
@@ -68,23 +212,40 @@ parse_steam_datetime <- function(x) {
       )
     )
 
-    idx <- which(needs_parse)
 
-    out[idx[!is.na(parsed)]] <- parsed[!is.na(parsed)]
+    idx <- which(
+      needs_parse
+    )
+
+
+    out[
+      idx[
+        !is.na(parsed)
+      ]
+    ] <-
+      parsed[
+        !is.na(parsed)
+      ]
   }
+
 
   out
 }
 
-# ============================================================
-# HELPER: LOAD STEAM FILE
-# ============================================================
 
-load_steam_file <- function(path, game_name) {
+# ------------------------------------------------------------
+# Load one Steam engagement file
+# ------------------------------------------------------------
+
+load_steam_file <- function(
+  path,
+  game_name
+) {
+
   read_csv(
     path,
     show_col_types = FALSE
-  ) %>%
+  ) |>
     mutate(
       DateTime = as.character(DateTime),
       Players = as.numeric(Players),
@@ -93,1291 +254,1351 @@ load_steam_file <- function(path, game_name) {
     )
 }
 
-# ============================================================
-# HELPER: WINDOW STATS
-# ============================================================
-
-get_window_stats <- function(
-  game_i,
-  date_i,
-  start_offset,
-  end_offset,
-  steam_daily_df
-) {
-  window_df <- steam_daily_df %>%
-    filter(
-      game == game_i,
-      event_date >= date_i + start_offset,
-      event_date <= date_i + end_offset
-    )
-
-  tibble(
-    mean_log_avg_players = mean(
-      window_df$log_avg_players_daily,
-      na.rm = TRUE
-    ),
-
-    mean_avg_players = mean(
-      window_df$avg_players,
-      na.rm = TRUE
-    ),
-
-    n_days = sum(
-      !is.na(window_df$log_avg_players_daily)
-    )
-  ) %>%
-    mutate(
-      mean_log_avg_players = if_else(
-        is.nan(mean_log_avg_players),
-        NA_real_,
-        mean_log_avg_players
-      ),
-
-      mean_avg_players = if_else(
-        is.nan(mean_avg_players),
-        NA_real_,
-        mean_avg_players
-      )
-    )
-}
 
 # ============================================================
-# 1) LOAD PATCH-DAY FEATURES
+# 2) LOAD COMMUNICATION FEATURES
 # ============================================================
 
-patch_data <- read_csv(
+communications <- read_csv(
   "data/interim/study2/patch_levers_with_controls.csv",
   show_col_types = FALSE
-) %>%
+) |>
   mutate(
     event_date = as.Date(event_date),
-    game = as.character(game),
-
-    total_chars = as.numeric(total_chars),
-    total_sentence_chars = as.numeric(total_sentence_chars),
-    total_sentences = as.numeric(total_sentences)
+    event_id = as.character(event_id),
+    game = as.character(game)
+  ) |>
+  arrange(
+    game,
+    event_date
   )
 
-cat("\n🎮 Loaded patch-level rows:", nrow(patch_data), "\n")
-cat("🎮 Unique games:", n_distinct(patch_data$game), "\n")
+
+cat(
+  "\n============================================================\n"
+)
+
+cat(
+  "04 BUILD STUDY 2 ENGAGEMENT DATA\n"
+)
+
+cat(
+  "============================================================\n"
+)
+
+
+cat(
+  "\nCommunication days loaded:",
+  nrow(communications),
+  "\n"
+)
+
+
+cat(
+  "Games:",
+  n_distinct(communications$game),
+  "\n"
+)
+
+
+# ------------------------------------------------------------
+# Validation
+# ------------------------------------------------------------
+
+duplicate_days <- communications |>
+  count(
+    game,
+    event_date
+  ) |>
+  filter(
+    n > 1
+  )
+
+
+if (nrow(duplicate_days) > 0) {
+
+  stop(
+    "Duplicate communication game-days found in Step 04 input."
+  )
+}
+
+
+duplicate_ids <- communications |>
+  count(
+    event_id
+  ) |>
+  filter(
+    n > 1
+  )
+
+
+if (nrow(duplicate_ids) > 0) {
+
+  stop(
+    "Duplicate event_id values found in Step 04 input."
+  )
+}
+
 
 # ============================================================
-# 2) LOAD STEAM FILES
-# ============================================================
-
-apex <- load_steam_file(
-  "data/raw/study2/apex_steam_data.csv",
-  "Apex Legends"
-)
-
-marvel <- load_steam_file(
-  "data/raw/study2/marvel_steam_data.csv",
-  "Marvel Rivals"
-)
-
-overwatch <- load_steam_file(
-  "data/raw/study2/overwatch_steam_data.csv",
-  "Overwatch 2"
-)
-
-brawlhalla <- load_steam_file(
-  "data/raw/study2/brawlhalla_steam_data.csv",
-  "Brawlhalla"
-)
-
-finals <- load_steam_file(
-  "data/raw/study2/the_finals_steam_data.csv",
-  "THE FINALS"
-)
-
-war_thunder <- load_steam_file(
-  "data/raw/study2/war_thunder_steam_data.csv",
-  "War Thunder"
-)
-
-pubg <- load_steam_file(
-  "data/raw/study2/pubg_steam_data.csv",
-  "PUBG: BATTLEGROUNDS"
-)
-
-counter_strike <- load_steam_file(
-  "data/raw/study2/counter_strike_steam_data.csv",
-  "Counter-Strike 2"
-)
-
-# ============================================================
-# 3) COMBINE + STANDARDIZE STEAM
+# 3) LOAD + COMBINE STEAM ENGAGEMENT DATA
 # ============================================================
 
 steam_raw <- bind_rows(
-  apex,
-  marvel,
-  overwatch,
-  brawlhalla,
-  finals,
-  war_thunder,
-  pubg,
-  counter_strike
-) %>%
+
+  load_steam_file(
+    "data/raw/study2/apex_steam_data.csv",
+    "Apex Legends"
+  ),
+
+  load_steam_file(
+    "data/raw/study2/marvel_steam_data.csv",
+    "Marvel Rivals"
+  ),
+
+  load_steam_file(
+    "data/raw/study2/overwatch_steam_data.csv",
+    "Overwatch 2"
+  ),
+
+  load_steam_file(
+    "data/raw/study2/brawlhalla_steam_data.csv",
+    "Brawlhalla"
+  ),
+
+  load_steam_file(
+    "data/raw/study2/the_finals_steam_data.csv",
+    "THE FINALS"
+  ),
+
+  load_steam_file(
+    "data/raw/study2/war_thunder_steam_data.csv",
+    "War Thunder"
+  ),
+
+  load_steam_file(
+    "data/raw/study2/pubg_steam_data.csv",
+    "PUBG: BATTLEGROUNDS"
+  ),
+
+  load_steam_file(
+    "data/raw/study2/counter_strike_steam_data.csv",
+    "Counter-Strike 2"
+  )
+
+) |>
   rename(
     datetime = DateTime,
     players = Players,
     avg_players_raw = `Average Players`
-  ) %>%
+  ) |>
   mutate(
-    datetime = parse_steam_datetime(datetime),
-    event_date = as.Date(datetime)
-  ) %>%
+    datetime =
+      parse_steam_datetime(
+        datetime
+      ),
+
+    calendar_date =
+      as.Date(
+        datetime
+      )
+  ) |>
   filter(
     !is.na(game),
-    !is.na(event_date)
+    !is.na(calendar_date)
   )
 
-cat("\n🎮 Loaded raw Steam rows:", nrow(steam_raw), "\n")
-cat("🎮 Steam games:", n_distinct(steam_raw$game), "\n")
+
+cat(
+  "\nRaw Steam rows:",
+  nrow(steam_raw),
+  "\n"
+)
+
 
 # ============================================================
-# 4) COLLAPSE TO STEAM DAILY
+# 4) COLLAPSE STEAM DATA TO ONE ROW PER GAME-DAY
 # ============================================================
 
-steam_daily <- steam_raw %>%
+steam_daily <- steam_raw |>
   group_by(
     game,
-    event_date
-  ) %>%
+    calendar_date
+  ) |>
   summarise(
-    n_rows = n(),
 
-    avg_players = case_when(
-      n_rows == 1 &
-        !is.na(first(avg_players_raw)) ~
-        first(avg_players_raw),
+    n_steam_rows =
+      n(),
 
-      sum(!is.na(avg_players_raw)) > 0 ~
-        mean(avg_players_raw, na.rm = TRUE),
+    # Prefer the supplied Average Players measure when
+    # available. Fall back to Players otherwise.
 
-      TRUE ~
-        mean(players, na.rm = TRUE)
-    ),
+    avg_players =
+      if (
+        any(
+          !is.na(avg_players_raw)
+        )
+      ) {
 
-    avg_players = if_else(
-      is.nan(avg_players),
-      NA_real_,
-      avg_players
-    ),
+        mean(
+          avg_players_raw,
+          na.rm = TRUE
+        )
 
-    peak_players = if (all(is.na(players))) {
-      NA_real_
-    } else {
-      max(players, na.rm = TRUE)
-    },
+      } else {
 
-    n_avg_obs_day = sum(
-      !is.na(avg_players_raw)
-    ),
+        mean(
+          players,
+          na.rm = TRUE
+        )
+      },
 
     .groups = "drop"
-  ) %>%
+  ) |>
+  mutate(
+
+    avg_players =
+      if_else(
+        is.nan(avg_players),
+        NA_real_,
+        avg_players
+      ),
+
+    log_avg_players_daily =
+      log1p(
+        avg_players
+      )
+  ) |>
   arrange(
     game,
-    event_date
-  ) %>%
-  group_by(game) %>%
-  mutate(
-    lag_avg_players = lag(avg_players, 1),
+    calendar_date
+  )
 
-    log_avg_players_daily = log1p(
-      avg_players
-    ),
 
-    log_lag_avg_players_daily = log1p(
-      lag_avg_players
-    ),
+cat(
+  "Observed Steam game-days:",
+  nrow(steam_daily),
+  "\n"
+)
 
-    log_peak_players_daily = log1p(
-      peak_players
-    )
-  ) %>%
-  ungroup()
+
+if (
+  nrow(
+    steam_daily |>
+      count(
+        game,
+        calendar_date
+      ) |>
+      filter(
+        n > 1
+      )
+  ) > 0
+) {
+
+  stop(
+    "Duplicate game-day rows remain after Steam aggregation."
+  )
+}
+
 
 # ============================================================
-# 5) COLLAPSE PATCH COMMUNICATION TO GAME-DAY
+# 5) STEAM COVERAGE
 # ============================================================
 
-patch_daily <- patch_data %>%
-  filter(game %in% unique(steam_daily$game)) %>%
-  group_by(game, event_date) %>%
+steam_coverage <- steam_daily |>
+  group_by(
+    game
+  ) |>
   summarise(
-    abs_competitive = sum(abs_competitive, na.rm = TRUE),
-    abs_cosmetic    = sum(abs_cosmetic, na.rm = TRUE),
-    abs_seasonal    = sum(abs_seasonal, na.rm = TRUE),
-    abs_difficulty  = sum(abs_difficulty, na.rm = TRUE),
 
-    # Full original patch-note length
-    total_chars = sum(total_chars, na.rm = TRUE),
+    steam_start_date =
+      min(
+        calendar_date,
+        na.rm = TRUE
+      ),
 
-    # Eligible sentence totals
-    total_sentence_chars = sum(total_sentence_chars, na.rm = TRUE),
-    total_sentences      = sum(total_sentences, na.rm = TRUE),
+    steam_end_date =
+      max(
+        calendar_date,
+        na.rm = TRUE
+      ),
 
-    new_season_patch = max(new_season_patch, na.rm = TRUE),
-    days_since_release = first(days_since_release),
-    log_days_since_release = first(log_days_since_release),
-
-    n_patch_posts_day = n(),
-
-    patch_titles = paste(unique(patch_title), collapse = " | "),
-    event_ids = paste(unique(event_id), collapse = " | "),
+    observed_steam_days =
+      n(),
 
     .groups = "drop"
-  ) %>%
+  )
+
+
+cat(
+  "\n--- STEAM COVERAGE ---\n"
+)
+
+
+print(
+  steam_coverage,
+  n = Inf,
+  width = Inf
+)
+
+
+# ============================================================
+# 6) CREATE COMPLETE GAME-DAY CALENDAR
+# ============================================================
+
+# Missing calendar dates are retained as rows with missing
+# engagement. This ensures that lagging by one row later in
+# the analysis corresponds to exactly one calendar day.
+
+steam_calendar <- steam_daily |>
+  group_by(
+    game
+  ) |>
+  complete(
+    calendar_date =
+      seq.Date(
+        min(
+          calendar_date,
+          na.rm = TRUE
+        ),
+        max(
+          calendar_date,
+          na.rm = TRUE
+        ),
+        by = "day"
+      )
+  ) |>
+  ungroup() |>
+  arrange(
+    game,
+    calendar_date
+  )
+
+
+cat(
+  "\nComplete calendar rows:",
+  nrow(steam_calendar),
+  "\n"
+)
+
+
+# ============================================================
+# 7) RETAIN COMMUNICATIONS WITHIN STEAM COVERAGE
+# ============================================================
+
+communications_model <- communications |>
+  left_join(
+    steam_coverage,
+    by = "game"
+  ) |>
+  filter(
+    event_date >= steam_start_date,
+    event_date <= steam_end_date
+  ) |>
   mutate(
-    rel_competitive = if_else(
-      total_sentence_chars > 0,
-      abs_competitive / total_sentence_chars,
-      NA_real_
-    ),
 
-    rel_cosmetic = if_else(
-      total_sentence_chars > 0,
-      abs_cosmetic / total_sentence_chars,
-      NA_real_
-    ),
+    game_age_days =
+      as.numeric(
+        event_date -
+          steam_start_date
+      ),
 
-    rel_seasonal = if_else(
-      total_sentence_chars > 0,
-      abs_seasonal / total_sentence_chars,
-      NA_real_
-    ),
+    log_game_age_days =
+      log1p(
+        game_age_days
+      )
+  )
 
-    rel_difficulty = if_else(
-      total_sentence_chars > 0,
-      abs_difficulty / total_sentence_chars,
-      NA_real_
-    ),
 
-    log_total_chars = log1p(total_chars),
+cat(
+  "\nCommunication days within Steam coverage:",
+  nrow(communications_model),
+  "\n"
+)
 
-    avg_sentence_chars = if_else(
-      total_sentences > 0,
-      total_sentence_chars / total_sentences,
-      NA_real_
-    ),
 
-    log_avg_sentence_chars = log1p(avg_sentence_chars),
+cat(
+  "Dropped outside Steam coverage:",
+  nrow(communications) -
+    nrow(communications_model),
+  "\n"
+)
 
-    new_season_patch = if_else(
-      is.infinite(new_season_patch),
-      0L,
-      as.integer(new_season_patch)
+
+if (
+  any(
+    communications_model$game_age_days < 0,
+    na.rm = TRUE
+  )
+) {
+
+  stop(
+    "Negative game-age values found after Steam-coverage restriction."
+  )
+}
+
+
+# ============================================================
+# 8) STANDARDIZE COMMUNICATION-LEVEL PREDICTORS
+# ============================================================
+#
+# Standardization occurs across actual communication days only.
+# The same standardized values are used in both pre/post models
+# and the daily robustness model.
+# ============================================================
+
+communications_model <- communications_model |>
+  mutate(
+
+    z_competitive =
+      scale2(
+        rel_competitive
+      ),
+
+    z_cosmetic =
+      scale2(
+        rel_cosmetic
+      ),
+
+    z_seasonal =
+      scale2(
+        rel_seasonal
+      ),
+
+    z_difficulty =
+      scale2(
+        rel_difficulty
+      ),
+
+    z_log_total_chars =
+      scale2(
+        log_total_chars
+      ),
+
+    z_log_avg_sentence_chars =
+      scale2(
+        log_avg_sentence_chars
+      ),
+
+    z_log_game_age_days_event =
+      scale2(
+        log_game_age_days
+      )
+  )
+
+
+# ============================================================
+# 9) BUILD 3-DAY PRE/POST EVENT WINDOWS
+# ============================================================
+#
+# Seven calendar dates are retrieved for each communication:
+#
+#   -3, -2, -1, 0, +1, +2, +3
+#
+# These rows are used to construct:
+#
+# Model 1:
+#   -3:-1 versus +1:+3
+#
+# Model 2:
+#   -3:-1 versus 0:+2
+#
+# ============================================================
+
+window_rows <- communications_model |>
+  select(
+    game,
+    event_id,
+    event_date
+  ) |>
+  crossing(
+    window_offset =
+      c(
+        -3L,
+        -2L,
+        -1L,
+         0L,
+         1L,
+         2L,
+         3L
+      )
+  ) |>
+  mutate(
+    calendar_date =
+      event_date +
+      window_offset
+  ) |>
+  left_join(
+    steam_daily |>
+      select(
+        game,
+        calendar_date,
+        avg_players,
+        log_avg_players_daily
+      ),
+    by = c(
+      "game",
+      "calendar_date"
     )
   )
 
+
 # ============================================================
-# 6) CREATE ENGAGEMENT OUTCOME WINDOWS
+# 10) CREATE BOTH PRE/POST OUTCOMES
 # ============================================================
 
-# Outcome logic:
-#
-# Pre-window:
-#   days -7 to -1
-#
-# 0-day version:
-#   immediate window = day 0
-#   post window      = days +1 to +7
-#
-# 1-day version:
-#   immediate window = days 0 to +1
-#   post window      = days +2 to +7
-#
-# 2-day version:
-#   immediate window = days 0 to +2
-#   post window      = days +3 to +7
-#
-# For each version:
-#   lift      = immediate window - pre-window
-#   retention = post-window - immediate window
-
-outcome_windows <- patch_daily %>%
-  select(
+window_summary <- window_rows |>
+  group_by(
     game,
+    event_id,
     event_date
-  ) %>%
-  distinct() %>%
-  rowwise() %>%
-  mutate(
-    # -------------------------
-    # Baseline / pre-window
-    # -------------------------
+  ) |>
+  summarise(
 
-    pre_window = list(
-      get_window_stats(
-        game,
-        event_date,
-        -7,
-        -1,
-        steam_daily
-      )
-    ),
+    # --------------------------------------------------------
+    # Shared pre-period: Days -3 to -1
+    # --------------------------------------------------------
 
-    pre_log_avg_players =
-      pre_window$mean_log_avg_players,
+    pre_log_avg_players_3d =
+      mean(
+        log_avg_players_daily[
+          window_offset %in%
+            c(-3L, -2L, -1L)
+        ],
+        na.rm = TRUE
+      ),
 
-    pre_avg_players =
-      pre_window$mean_avg_players,
+    pre_avg_players_3d =
+      mean(
+        avg_players[
+          window_offset %in%
+            c(-3L, -2L, -1L)
+        ],
+        na.rm = TRUE
+      ),
 
     n_pre_days =
-      pre_window$n_days,
+      sum(
+        window_offset %in%
+          c(-3L, -2L, -1L) &
+          !is.na(
+            log_avg_players_daily
+          )
+      ),
 
-    # -------------------------
-    # 0-day immediate version
-    # -------------------------
 
-    immediate_0d_window = list(
-      get_window_stats(
-        game,
-        event_date,
-        0,
-        0,
-        steam_daily
-      )
-    ),
+    # --------------------------------------------------------
+    # Primary post-period: Days +1 to +3
+    # --------------------------------------------------------
 
-    post_0d_window = list(
-      get_window_stats(
-        game,
-        event_date,
-        1,
-        7,
-        steam_daily
-      )
-    ),
+    post_log_avg_players_excl_day0 =
+      mean(
+        log_avg_players_daily[
+          window_offset %in%
+            c(1L, 2L, 3L)
+        ],
+        na.rm = TRUE
+      ),
 
-    immediate_0d_log_avg_players =
-      immediate_0d_window$mean_log_avg_players,
+    post_avg_players_excl_day0 =
+      mean(
+        avg_players[
+          window_offset %in%
+            c(1L, 2L, 3L)
+        ],
+        na.rm = TRUE
+      ),
 
-    post_0d_log_avg_players =
-      post_0d_window$mean_log_avg_players,
+    n_post_days_excl_day0 =
+      sum(
+        window_offset %in%
+          c(1L, 2L, 3L) &
+          !is.na(
+            log_avg_players_daily
+          )
+      ),
 
-    immediate_0d_avg_players =
-      immediate_0d_window$mean_avg_players,
 
-    post_0d_avg_players =
-      post_0d_window$mean_avg_players,
+    # --------------------------------------------------------
+    # Day 0 sensitivity post-period: Days 0 to +2
+    # --------------------------------------------------------
 
-    n_immediate_0d_days =
-      immediate_0d_window$n_days,
+    post_log_avg_players_incl_day0 =
+      mean(
+        log_avg_players_daily[
+          window_offset %in%
+            c(0L, 1L, 2L)
+        ],
+        na.rm = TRUE
+      ),
 
-    n_post_0d_days =
-      post_0d_window$n_days,
+    post_avg_players_incl_day0 =
+      mean(
+        avg_players[
+          window_offset %in%
+            c(0L, 1L, 2L)
+        ],
+        na.rm = TRUE
+      ),
 
-    engagement_lift_0d =
-      immediate_0d_log_avg_players -
-      pre_log_avg_players,
+    n_post_days_incl_day0 =
+      sum(
+        window_offset %in%
+          c(0L, 1L, 2L) &
+          !is.na(
+            log_avg_players_daily
+          )
+      ),
 
-    engagement_retention_0d =
-      post_0d_log_avg_players -
-      immediate_0d_log_avg_players,
+    .groups = "drop"
+  ) |>
 
-    raw_lift_players_0d =
-      immediate_0d_avg_players -
-      pre_avg_players,
-
-    raw_retention_players_0d =
-      post_0d_avg_players -
-      immediate_0d_avg_players,
-
-    pct_lift_players_0d = if_else(
-      pre_avg_players > 0,
-
-      (
-        immediate_0d_avg_players -
-          pre_avg_players
-      ) / pre_avg_players,
-
-      NA_real_
-    ),
-
-    pct_retention_players_0d = if_else(
-      immediate_0d_avg_players > 0,
-
-      (
-        post_0d_avg_players -
-          immediate_0d_avg_players
-      ) / immediate_0d_avg_players,
-
-      NA_real_
-    ),
-
-    # -------------------------
-    # 1-day immediate version
-    # -------------------------
-
-    immediate_1d_window = list(
-      get_window_stats(
-        game,
-        event_date,
-        0,
-        1,
-        steam_daily
-      )
-    ),
-
-    post_1d_window = list(
-      get_window_stats(
-        game,
-        event_date,
-        2,
-        7,
-        steam_daily
-      )
-    ),
-
-    immediate_1d_log_avg_players =
-      immediate_1d_window$mean_log_avg_players,
-
-    post_1d_log_avg_players =
-      post_1d_window$mean_log_avg_players,
-
-    immediate_1d_avg_players =
-      immediate_1d_window$mean_avg_players,
-
-    post_1d_avg_players =
-      post_1d_window$mean_avg_players,
-
-    n_immediate_1d_days =
-      immediate_1d_window$n_days,
-
-    n_post_1d_days =
-      post_1d_window$n_days,
-
-    engagement_lift_1d =
-      immediate_1d_log_avg_players -
-      pre_log_avg_players,
-
-    engagement_retention_1d =
-      post_1d_log_avg_players -
-      immediate_1d_log_avg_players,
-
-    raw_lift_players_1d =
-      immediate_1d_avg_players -
-      pre_avg_players,
-
-    raw_retention_players_1d =
-      post_1d_avg_players -
-      immediate_1d_avg_players,
-
-    pct_lift_players_1d = if_else(
-      pre_avg_players > 0,
-
-      (
-        immediate_1d_avg_players -
-          pre_avg_players
-      ) / pre_avg_players,
-
-      NA_real_
-    ),
-
-    pct_retention_players_1d = if_else(
-      immediate_1d_avg_players > 0,
-
-      (
-        post_1d_avg_players -
-          immediate_1d_avg_players
-      ) / immediate_1d_avg_players,
-
-      NA_real_
-    ),
-
-    # -------------------------
-    # 2-day immediate version
-    # -------------------------
-
-    immediate_2d_window = list(
-      get_window_stats(
-        game,
-        event_date,
-        0,
-        2,
-        steam_daily
-      )
-    ),
-
-    post_2d_window = list(
-      get_window_stats(
-        game,
-        event_date,
-        3,
-        7,
-        steam_daily
-      )
-    ),
-
-    immediate_2d_log_avg_players =
-      immediate_2d_window$mean_log_avg_players,
-
-    post_2d_log_avg_players =
-      post_2d_window$mean_log_avg_players,
-
-    immediate_2d_avg_players =
-      immediate_2d_window$mean_avg_players,
-
-    post_2d_avg_players =
-      post_2d_window$mean_avg_players,
-
-    n_immediate_2d_days =
-      immediate_2d_window$n_days,
-
-    n_post_2d_days =
-      post_2d_window$n_days,
-
-    engagement_lift_2d =
-      immediate_2d_log_avg_players -
-      pre_log_avg_players,
-
-    engagement_retention_2d =
-      post_2d_log_avg_players -
-      immediate_2d_log_avg_players,
-
-    raw_lift_players_2d =
-      immediate_2d_avg_players -
-      pre_avg_players,
-
-    raw_retention_players_2d =
-      post_2d_avg_players -
-      immediate_2d_avg_players,
-
-    pct_lift_players_2d = if_else(
-      pre_avg_players > 0,
-
-      (
-        immediate_2d_avg_players -
-          pre_avg_players
-      ) / pre_avg_players,
-
-      NA_real_
-    ),
-
-    pct_retention_players_2d = if_else(
-      immediate_2d_avg_players > 0,
-
-      (
-        post_2d_avg_players -
-          immediate_2d_avg_players
-      ) / immediate_2d_avg_players,
-
-      NA_real_
-    )
-  ) %>%
-  ungroup() %>%
-  select(
-    game,
-    event_date,
-
-    pre_log_avg_players,
-    pre_avg_players,
-    n_pre_days,
-
-    immediate_0d_log_avg_players,
-    post_0d_log_avg_players,
-    immediate_0d_avg_players,
-    post_0d_avg_players,
-    n_immediate_0d_days,
-    n_post_0d_days,
-    engagement_lift_0d,
-    engagement_retention_0d,
-    raw_lift_players_0d,
-    raw_retention_players_0d,
-    pct_lift_players_0d,
-    pct_retention_players_0d,
-
-    immediate_1d_log_avg_players,
-    post_1d_log_avg_players,
-    immediate_1d_avg_players,
-    post_1d_avg_players,
-    n_immediate_1d_days,
-    n_post_1d_days,
-    engagement_lift_1d,
-    engagement_retention_1d,
-    raw_lift_players_1d,
-    raw_retention_players_1d,
-    pct_lift_players_1d,
-    pct_retention_players_1d,
-
-    immediate_2d_log_avg_players,
-    post_2d_log_avg_players,
-    immediate_2d_avg_players,
-    post_2d_avg_players,
-    n_immediate_2d_days,
-    n_post_2d_days,
-    engagement_lift_2d,
-    engagement_retention_2d,
-    raw_lift_players_2d,
-    raw_retention_players_2d,
-    pct_lift_players_2d,
-    pct_retention_players_2d
-  )
-
-# ============================================================
-# 7) MERGE PATCH FEATURES + SAME-DAY ENGAGEMENT + OUTCOMES
-# ============================================================
-
-merged_data <- patch_daily %>%
-  left_join(
-    steam_daily,
-    by = c(
-      "game",
-      "event_date"
-    )
-  ) %>%
-  left_join(
-    outcome_windows,
-    by = c(
-      "game",
-      "event_date"
-    )
-  ) %>%
   mutate(
-    log_avg_players = log1p(
-      avg_players
+
+    # Convert NaN means from entirely missing windows to NA
+
+    across(
+      c(
+        pre_log_avg_players_3d,
+        pre_avg_players_3d,
+        post_log_avg_players_excl_day0,
+        post_avg_players_excl_day0,
+        post_log_avg_players_incl_day0,
+        post_avg_players_incl_day0
+      ),
+      ~ if_else(
+        is.nan(.x),
+        NA_real_,
+        .x
+      )
     ),
 
-    log_lag_avg_players = log1p(
-      lag_avg_players
-    ),
 
-    log_peak_players = log1p(
-      peak_players
-    )
+    # --------------------------------------------------------
+    # PRIMARY OUTCOME
+    # Days +1:+3 minus Days -3:-1
+    # --------------------------------------------------------
+
+    engagement_change_excl_day0 =
+      post_log_avg_players_excl_day0 -
+      pre_log_avg_players_3d,
+
+
+    # --------------------------------------------------------
+    # DAY 0 SENSITIVITY OUTCOME
+    # Days 0:+2 minus Days -3:-1
+    # --------------------------------------------------------
+
+    engagement_change_incl_day0 =
+      post_log_avg_players_incl_day0 -
+      pre_log_avg_players_3d,
+
+
+    # --------------------------------------------------------
+    # Raw-player diagnostics
+    # --------------------------------------------------------
+
+    raw_player_change_excl_day0 =
+      post_avg_players_excl_day0 -
+      pre_avg_players_3d,
+
+    raw_player_change_incl_day0 =
+      post_avg_players_incl_day0 -
+      pre_avg_players_3d,
+
+
+    pct_player_change_excl_day0 =
+      if_else(
+        pre_avg_players_3d > 0,
+        (
+          post_avg_players_excl_day0 -
+            pre_avg_players_3d
+        ) /
+          pre_avg_players_3d,
+        NA_real_
+      ),
+
+    pct_player_change_incl_day0 =
+      if_else(
+        pre_avg_players_3d > 0,
+        (
+          post_avg_players_incl_day0 -
+            pre_avg_players_3d
+        ) /
+          pre_avg_players_3d,
+        NA_real_
+      ),
+
+
+    # --------------------------------------------------------
+    # Complete-window indicators
+    # --------------------------------------------------------
+
+    complete_excl_day0_window =
+      n_pre_days == 3 &
+      n_post_days_excl_day0 == 3,
+
+    complete_incl_day0_window =
+      n_pre_days == 3 &
+      n_post_days_incl_day0 == 3
   )
+
 
 # ============================================================
-# 8) VALIDATION
+# 11) BUILD EVENT-LEVEL ANALYSIS DATA
 # ============================================================
 
-cat("\n--- STEAM DAILY CHECK ---\n")
+event_data <- communications_model |>
+  left_join(
+    window_summary,
+    by = c(
+      "game",
+      "event_id",
+      "event_date"
+    )
+  ) |>
+  mutate(
 
-steam_daily %>%
-  group_by(game) %>%
+    weekday_f =
+      factor(
+        wday(
+          event_date,
+          label = TRUE,
+          abbr = TRUE,
+          week_start = 1
+        )
+      ),
+
+    month_f =
+      factor(
+        month(
+          event_date
+        )
+      ),
+
+    year_f =
+      factor(
+        year(
+          event_date
+        )
+      ),
+
+    game_month =
+      interaction(
+        game,
+        format(
+          event_date,
+          "%Y-%m"
+        ),
+        drop = TRUE
+      )
+  )
+
+
+# ============================================================
+# 12) PRE/POST WINDOW DIAGNOSTICS
+# ============================================================
+
+cat(
+  "\n============================================================\n"
+)
+
+cat(
+  "PRE/POST WINDOW CHECK\n"
+)
+
+cat(
+  "============================================================\n"
+)
+
+
+event_data |>
   summarise(
-    min_date = min(
-      event_date,
-      na.rm = TRUE
-    ),
 
-    max_date = max(
-      event_date,
-      na.rm = TRUE
-    ),
+    communication_days =
+      n(),
 
-    min_avg_obs = min(
-      n_avg_obs_day,
-      na.rm = TRUE
-    ),
 
-    max_avg_obs = max(
-      n_avg_obs_day,
-      na.rm = TRUE
-    ),
+    # Primary model
 
-    total_days = n(),
+    complete_excl_day0 =
+      sum(
+        complete_excl_day0_window,
+        na.rm = TRUE
+      ),
+
+    incomplete_excl_day0 =
+      sum(
+        !complete_excl_day0_window,
+        na.rm = TRUE
+      ),
+
+    pct_complete_excl_day0 =
+      mean(
+        complete_excl_day0_window,
+        na.rm = TRUE
+      ),
+
+    mean_change_excl_day0 =
+      mean(
+        engagement_change_excl_day0[
+          complete_excl_day0_window
+        ],
+        na.rm = TRUE
+      ),
+
+    sd_change_excl_day0 =
+      sd(
+        engagement_change_excl_day0[
+          complete_excl_day0_window
+        ],
+        na.rm = TRUE
+      ),
+
+
+    # Day 0 sensitivity model
+
+    complete_incl_day0 =
+      sum(
+        complete_incl_day0_window,
+        na.rm = TRUE
+      ),
+
+    incomplete_incl_day0 =
+      sum(
+        !complete_incl_day0_window,
+        na.rm = TRUE
+      ),
+
+    pct_complete_incl_day0 =
+      mean(
+        complete_incl_day0_window,
+        na.rm = TRUE
+      ),
+
+    mean_change_incl_day0 =
+      mean(
+        engagement_change_incl_day0[
+          complete_incl_day0_window
+        ],
+        na.rm = TRUE
+      ),
+
+    sd_change_incl_day0 =
+      sd(
+        engagement_change_incl_day0[
+          complete_incl_day0_window
+        ],
+        na.rm = TRUE
+      )
+  ) |>
+  print(
+    width = Inf
+  )
+
+
+# ============================================================
+# 13) PRIMARY/SENSITIVITY SAMPLE BY GAME
+# ============================================================
+
+cat(
+  "\n--- COMPLETE WINDOWS BY GAME ---\n"
+)
+
+
+event_data |>
+  group_by(
+    game
+  ) |>
+  summarise(
+
+    communication_days =
+      n(),
+
+    complete_excl_day0 =
+      sum(
+        complete_excl_day0_window,
+        na.rm = TRUE
+      ),
+
+    complete_incl_day0 =
+      sum(
+        complete_incl_day0_window,
+        na.rm = TRUE
+      ),
+
+    pct_complete_excl_day0 =
+      mean(
+        complete_excl_day0_window,
+        na.rm = TRUE
+      ),
+
+    pct_complete_incl_day0 =
+      mean(
+        complete_incl_day0_window,
+        na.rm = TRUE
+      ),
 
     .groups = "drop"
-  ) %>%
-  print(n = Inf)
-
-cat("\n--- PATCH-DAY CHECK ---\n")
-
-patch_daily %>%
-  group_by(game) %>%
-  summarise(
-    patch_days = n(),
-
-    mean_patch_posts_day = mean(
-      n_patch_posts_day,
-      na.rm = TRUE
-    ),
-
-    max_patch_posts_day = max(
-      n_patch_posts_day,
-      na.rm = TRUE
-    ),
-
-    mean_total_chars = mean(
-      total_chars,
-      na.rm = TRUE
-    ),
-
-    mean_total_sentences = mean(
-      total_sentences,
-      na.rm = TRUE
-    ),
-
-    mean_avg_sentence_chars = mean(
-      avg_sentence_chars,
-      na.rm = TRUE
-    ),
-
-    .groups = "drop"
-  ) %>%
-  print(n = Inf)
-
-cat("\n--- MERGE CHECK ---\n")
-
-merge_check <- merged_data %>%
-  summarise(
-    total_patch_days = n(),
-
-    missing_avg_players = sum(
-      is.na(avg_players)
-    ),
-
-    missing_lag = sum(
-      is.na(lag_avg_players)
-    ),
-
-    missing_avg_sentence_chars = sum(
-      is.na(avg_sentence_chars)
-    ),
-
-    missing_lift_0d = sum(
-      is.na(engagement_lift_0d)
-    ),
-
-    missing_retention_0d = sum(
-      is.na(engagement_retention_0d)
-    ),
-
-    missing_lift_1d = sum(
-      is.na(engagement_lift_1d)
-    ),
-
-    missing_retention_1d = sum(
-      is.na(engagement_retention_1d)
-    ),
-
-    missing_lift_2d = sum(
-      is.na(engagement_lift_2d)
-    ),
-
-    missing_retention_2d = sum(
-      is.na(engagement_retention_2d)
+  ) |>
+  arrange(
+    desc(
+      communication_days
     )
+  ) |>
+  print(
+    n = Inf,
+    width = Inf
   )
 
-print(merge_check)
 
-cat("\n--- SENTENCE LENGTH CHECK ---\n")
+# ============================================================
+# 14) BUILD DAILY PANEL FOR DISTRIBUTED-LAG ROBUSTNESS
+# ============================================================
+#
+# Each game-date appears exactly once.
+#
+# Communication characteristics are nonzero only on actual
+# communication dates. Step 06 will create Day 0 through
+# Day +3 distributed lags from these variables.
+# ============================================================
 
-sentence_length_check <- merged_data %>%
-  summarise(
-    min_total_sentences = min(
-      total_sentences,
-      na.rm = TRUE
-    ),
+daily_panel <- steam_calendar |>
 
-    mean_total_sentences = mean(
-      total_sentences,
-      na.rm = TRUE
-    ),
-
-    max_total_sentences = max(
-      total_sentences,
-      na.rm = TRUE
-    ),
-
-    min_avg_sentence_chars = min(
-      avg_sentence_chars,
-      na.rm = TRUE
-    ),
-
-    mean_avg_sentence_chars = mean(
-      avg_sentence_chars,
-      na.rm = TRUE
-    ),
-
-    median_avg_sentence_chars = median(
-      avg_sentence_chars,
-      na.rm = TRUE
-    ),
-
-    max_avg_sentence_chars = max(
-      avg_sentence_chars,
-      na.rm = TRUE
+  left_join(
+    communications_model |>
+      select(
+        game,
+        event_date,
+        event_id,
+        patch_title,
+        z_competitive,
+        z_cosmetic,
+        z_seasonal,
+        z_difficulty,
+        z_log_total_chars,
+        z_log_avg_sentence_chars,
+        season_related_communication
+      ),
+    by = c(
+      "game",
+      "calendar_date" = "event_date"
     )
-  )
+  ) |>
 
-print(sentence_length_check)
+  mutate(
 
-cat("\n--- OUTCOME WINDOW DAY COUNTS ---\n")
+    communication_day =
+      as.integer(
+        !is.na(event_id)
+      ),
 
-window_check <- merged_data %>%
-  summarise(
-    min_pre_days = min(
-      n_pre_days,
-      na.rm = TRUE
-    ),
 
-    mean_pre_days = mean(
-      n_pre_days,
-      na.rm = TRUE
-    ),
+    # --------------------------------------------------------
+    # Communication emphasis variables
+    # --------------------------------------------------------
 
-    max_pre_days = max(
-      n_pre_days,
-      na.rm = TRUE
-    ),
+    x_competitive =
+      if_else(
+        communication_day == 1,
+        z_competitive,
+        0
+      ),
 
-    min_immediate_0d_days = min(
-      n_immediate_0d_days,
-      na.rm = TRUE
-    ),
+    x_cosmetic =
+      if_else(
+        communication_day == 1,
+        z_cosmetic,
+        0
+      ),
 
-    mean_immediate_0d_days = mean(
-      n_immediate_0d_days,
-      na.rm = TRUE
-    ),
+    x_seasonal =
+      if_else(
+        communication_day == 1,
+        z_seasonal,
+        0
+      ),
 
-    max_immediate_0d_days = max(
-      n_immediate_0d_days,
-      na.rm = TRUE
-    ),
+    x_difficulty =
+      if_else(
+        communication_day == 1,
+        z_difficulty,
+        0
+      ),
 
-    min_post_0d_days = min(
-      n_post_0d_days,
-      na.rm = TRUE
-    ),
 
-    mean_post_0d_days = mean(
-      n_post_0d_days,
-      na.rm = TRUE
-    ),
+    # --------------------------------------------------------
+    # Communication controls
+    # --------------------------------------------------------
 
-    max_post_0d_days = max(
-      n_post_0d_days,
-      na.rm = TRUE
-    ),
+    x_length =
+      if_else(
+        communication_day == 1,
+        z_log_total_chars,
+        0
+      ),
 
-    min_immediate_1d_days = min(
-      n_immediate_1d_days,
-      na.rm = TRUE
-    ),
+    x_sentence_length =
+      if_else(
+        communication_day == 1,
+        z_log_avg_sentence_chars,
+        0
+      ),
 
-    mean_immediate_1d_days = mean(
-      n_immediate_1d_days,
-      na.rm = TRUE
-    ),
+    x_season_related =
+      if_else(
+        communication_day == 1,
+        as.numeric(
+          season_related_communication
+        ),
+        0
+      )
+  ) |>
 
-    max_immediate_1d_days = max(
-      n_immediate_1d_days,
-      na.rm = TRUE
-    ),
+  left_join(
+    steam_coverage,
+    by = "game"
+  ) |>
 
-    min_post_1d_days = min(
-      n_post_1d_days,
-      na.rm = TRUE
-    ),
+  mutate(
 
-    mean_post_1d_days = mean(
-      n_post_1d_days,
-      na.rm = TRUE
-    ),
+    # --------------------------------------------------------
+    # Daily observed game-age control
+    # --------------------------------------------------------
 
-    max_post_1d_days = max(
-      n_post_1d_days,
-      na.rm = TRUE
-    ),
+    game_age_days =
+      as.numeric(
+        calendar_date -
+          steam_start_date
+      ),
 
-    min_immediate_2d_days = min(
-      n_immediate_2d_days,
-      na.rm = TRUE
-    ),
+    log_game_age_days =
+      log1p(
+        game_age_days
+      ),
 
-    mean_immediate_2d_days = mean(
-      n_immediate_2d_days,
-      na.rm = TRUE
-    ),
+    z_log_game_age_days =
+      scale2(
+        log_game_age_days
+      ),
 
-    max_immediate_2d_days = max(
-      n_immediate_2d_days,
-      na.rm = TRUE
-    ),
 
-    min_post_2d_days = min(
-      n_post_2d_days,
-      na.rm = TRUE
-    ),
+    # --------------------------------------------------------
+    # Daily fixed-effect variables
+    # --------------------------------------------------------
 
-    mean_post_2d_days = mean(
-      n_post_2d_days,
-      na.rm = TRUE
-    ),
+    weekday_f =
+      factor(
+        wday(
+          calendar_date,
+          label = TRUE,
+          abbr = TRUE,
+          week_start = 1
+        )
+      ),
 
-    max_post_2d_days = max(
-      n_post_2d_days,
-      na.rm = TRUE
-    )
-  )
+    month_f =
+      factor(
+        month(
+          calendar_date
+        )
+      ),
 
-print(window_check)
+    year_f =
+      factor(
+        year(
+          calendar_date
+        )
+      ),
 
-cat("\n--- OUTCOME CHECK ---\n")
+    game_month =
+      interaction(
+        game,
+        format(
+          calendar_date,
+          "%Y-%m"
+        ),
+        drop = TRUE
+      )
+  ) |>
 
-outcome_check <- merged_data %>%
-  summarise(
-    rows = n(),
-
-    mean_lift_0d = mean(
-      engagement_lift_0d,
-      na.rm = TRUE
-    ),
-
-    sd_lift_0d = sd(
-      engagement_lift_0d,
-      na.rm = TRUE
-    ),
-
-    mean_retention_0d = mean(
-      engagement_retention_0d,
-      na.rm = TRUE
-    ),
-
-    sd_retention_0d = sd(
-      engagement_retention_0d,
-      na.rm = TRUE
-    ),
-
-    mean_lift_1d = mean(
-      engagement_lift_1d,
-      na.rm = TRUE
-    ),
-
-    sd_lift_1d = sd(
-      engagement_lift_1d,
-      na.rm = TRUE
-    ),
-
-    mean_retention_1d = mean(
-      engagement_retention_1d,
-      na.rm = TRUE
-    ),
-
-    sd_retention_1d = sd(
-      engagement_retention_1d,
-      na.rm = TRUE
-    ),
-
-    mean_lift_2d = mean(
-      engagement_lift_2d,
-      na.rm = TRUE
-    ),
-
-    sd_lift_2d = sd(
-      engagement_lift_2d,
-      na.rm = TRUE
-    ),
-
-    mean_retention_2d = mean(
-      engagement_retention_2d,
-      na.rm = TRUE
-    ),
-
-    sd_retention_2d = sd(
-      engagement_retention_2d,
-      na.rm = TRUE
-    )
-  )
-
-print(outcome_check)
-
-cat("\n--- OUTCOME CHECK BY GAME ---\n")
-
-outcome_game_check <- merged_data %>%
-  group_by(game) %>%
-  summarise(
-    patch_days = n(),
-
-    mean_lift_0d = mean(
-      engagement_lift_0d,
-      na.rm = TRUE
-    ),
-
-    mean_retention_0d = mean(
-      engagement_retention_0d,
-      na.rm = TRUE
-    ),
-
-    mean_lift_1d = mean(
-      engagement_lift_1d,
-      na.rm = TRUE
-    ),
-
-    mean_retention_1d = mean(
-      engagement_retention_1d,
-      na.rm = TRUE
-    ),
-
-    mean_lift_2d = mean(
-      engagement_lift_2d,
-      na.rm = TRUE
-    ),
-
-    mean_retention_2d = mean(
-      engagement_retention_2d,
-      na.rm = TRUE
-    ),
-
-    mean_pre_days = mean(
-      n_pre_days,
-      na.rm = TRUE
-    ),
-
-    mean_avg_sentence_chars = mean(
-      avg_sentence_chars,
-      na.rm = TRUE
-    ),
-
-    .groups = "drop"
-  ) %>%
-  arrange(desc(patch_days))
-
-print(outcome_game_check, n = Inf)
-
-cat("\n--- SAMPLE FINAL DATA ---\n")
-
-merged_data %>%
-  select(
-    game,
-    event_date,
-
-    total_chars,
-    log_total_chars,
-
-    total_sentence_chars,
-    total_sentences,
-    avg_sentence_chars,
-    log_avg_sentence_chars,
-
-    avg_players,
-    lag_avg_players,
-    pre_log_avg_players,
-
-    immediate_0d_log_avg_players,
-    post_0d_log_avg_players,
-    engagement_lift_0d,
-    engagement_retention_0d,
-
-    immediate_1d_log_avg_players,
-    post_1d_log_avg_players,
-    engagement_lift_1d,
-    engagement_retention_1d,
-
-    immediate_2d_log_avg_players,
-    post_2d_log_avg_players,
-    engagement_lift_2d,
-    engagement_retention_2d,
-
-    n_pre_days,
-    n_immediate_0d_days,
-    n_post_0d_days,
-    n_immediate_1d_days,
-    n_post_1d_days,
-    n_immediate_2d_days,
-    n_post_2d_days,
-
-    n_patch_posts_day
-  ) %>%
   arrange(
     game,
-    event_date
-  ) %>%
-  print(n = 20)
-
-# ============================================================
-# 9) FINAL MODEL DATASET
-# ============================================================
-
-# Minimum window requirements:
-#
-# 0-day version:
-# - at least 3 pre-days
-# - at least 1 immediate day
-# - at least 3 post-days
-#
-# 1-day version:
-# - at least 3 pre-days
-# - at least 1 immediate day
-# - at least 3 post-days
-#
-# 2-day version:
-# - at least 3 pre-days
-# - at least 2 immediate days
-# - at least 3 post-days
-#
-# We keep rows that support at least the 0-day version.
-# The model script can filter further depending on which outcome
-# version is used.
-
-final_data <- merged_data %>%
-  filter(
-    !is.na(avg_players),
-    !is.na(lag_avg_players),
-
-    !is.na(log_total_chars),
-    !is.na(log_avg_sentence_chars),
-
-    n_pre_days >= 3,
-
-    !is.na(engagement_lift_0d),
-    !is.na(engagement_retention_0d),
-
-    n_immediate_0d_days >= 1,
-    n_post_0d_days >= 3
+    calendar_date
   )
 
-cat("\n--- FINAL DATASET CHECK ---\n")
 
-final_check <- final_data %>%
-  summarise(
-    final_rows = n(),
+# ============================================================
+# 15) DAILY PANEL VALIDATION
+# ============================================================
 
-    games = n_distinct(game),
-
-    min_date = min(
-      event_date,
-      na.rm = TRUE
-    ),
-
-    max_date = max(
-      event_date,
-      na.rm = TRUE
-    ),
-
-    mean_lift_0d = mean(
-      engagement_lift_0d,
-      na.rm = TRUE
-    ),
-
-    mean_retention_0d = mean(
-      engagement_retention_0d,
-      na.rm = TRUE
-    ),
-
-    mean_lift_1d = mean(
-      engagement_lift_1d,
-      na.rm = TRUE
-    ),
-
-    mean_retention_1d = mean(
-      engagement_retention_1d,
-      na.rm = TRUE
-    ),
-
-    mean_lift_2d = mean(
-      engagement_lift_2d,
-      na.rm = TRUE
-    ),
-
-    mean_retention_2d = mean(
-      engagement_retention_2d,
-      na.rm = TRUE
-    ),
-
-    mean_total_chars = mean(
-      total_chars,
-      na.rm = TRUE
-    ),
-
-    mean_avg_sentence_chars = mean(
-      avg_sentence_chars,
-      na.rm = TRUE
-    )
-  )
-
-print(final_check)
-
-cat("\n--- FINAL ROWS BY GAME ---\n")
-
-final_game_check <- final_data %>%
+duplicate_daily_rows <- daily_panel |>
   count(
     game,
-    sort = TRUE
+    calendar_date
+  ) |>
+  filter(
+    n > 1
   )
 
-print(final_game_check, n = Inf)
+
+if (nrow(duplicate_daily_rows) > 0) {
+
+  stop(
+    "Duplicate game-day rows found in the daily panel."
+  )
+}
+
+
+cat(
+  "\n============================================================\n"
+)
+
+cat(
+  "DAILY PANEL CHECK\n"
+)
+
+cat(
+  "============================================================\n"
+)
+
+
+daily_panel |>
+  summarise(
+
+    calendar_rows =
+      n(),
+
+    observed_engagement_days =
+      sum(
+        !is.na(
+          log_avg_players_daily
+        )
+      ),
+
+    communication_days =
+      sum(
+        communication_day,
+        na.rm = TRUE
+      ),
+
+    games =
+      n_distinct(
+        game
+      )
+  ) |>
+  print(
+    width = Inf
+  )
+
 
 # ============================================================
-# 10) SAVE
+# 16) FINAL DATA VALIDATION
 # ============================================================
 
-write_csv(
-  final_data,
-  "data/interim/study2/final_patch_dataset.csv"
+cat(
+  "\n============================================================\n"
 )
 
-write_csv(
-  steam_daily,
-  "data/interim/study2/steam_daily_engagement.csv"
+cat(
+  "FINAL ANALYSIS DATA CHECK\n"
 )
 
-write_csv(
-  patch_daily,
-  "data/interim/study2/patch_daily_features.csv"
+cat(
+  "============================================================\n"
 )
 
-write_csv(
-  outcome_windows,
-  "data/interim/study2/patch_engagement_outcomes.csv"
+
+event_data |>
+  summarise(
+
+    communication_events =
+      n(),
+
+    games =
+      n_distinct(
+        game
+      ),
+
+    missing_competitive =
+      sum(
+        is.na(
+          z_competitive
+        )
+      ),
+
+    missing_cosmetic =
+      sum(
+        is.na(
+          z_cosmetic
+        )
+      ),
+
+    missing_seasonal =
+      sum(
+        is.na(
+          z_seasonal
+        )
+      ),
+
+    missing_difficulty =
+      sum(
+        is.na(
+          z_difficulty
+        )
+      ),
+
+    missing_length =
+      sum(
+        is.na(
+          z_log_total_chars
+        )
+      ),
+
+    missing_sentence_length =
+      sum(
+        is.na(
+          z_log_avg_sentence_chars
+        )
+      ),
+
+    missing_season_related =
+      sum(
+        is.na(
+          season_related_communication
+        )
+      ),
+
+    missing_game_age =
+      sum(
+        is.na(
+          z_log_game_age_days_event
+        )
+      ),
+
+    complete_primary_windows =
+      sum(
+        complete_excl_day0_window,
+        na.rm = TRUE
+      ),
+
+    complete_day0_windows =
+      sum(
+        complete_incl_day0_window,
+        na.rm = TRUE
+      )
+  ) |>
+  print(
+    width = Inf
+  )
+
+
+# ============================================================
+# 17) SAVE ONE COMPACT ANALYSIS OBJECT
+# ============================================================
+
+analysis_data <- list(
+
+  event_data =
+    event_data,
+
+  daily_panel =
+    daily_panel,
+
+  steam_coverage =
+    steam_coverage
 )
 
-write_csv(
-  merge_check,
-  "output/tables/study2/step4_merge_check.csv"
+
+output_file <-
+  "data/interim/study2/study2_analysis_data.rds"
+
+
+saveRDS(
+  analysis_data,
+  output_file,
+  compress = "xz"
 )
 
-write_csv(
-  sentence_length_check,
-  "output/tables/study2/step4_sentence_length_check.csv"
+
+# ============================================================
+# 18) FINAL MESSAGE
+# ============================================================
+
+cat(
+  "\n============================================================\n"
 )
 
-write_csv(
-  window_check,
-  "output/tables/study2/step4_window_check.csv"
+cat(
+  "DONE - STEP 04\n"
 )
 
-write_csv(
-  outcome_check,
-  "output/tables/study2/step4_outcome_check.csv"
+cat(
+  "============================================================\n"
 )
 
-write_csv(
-  outcome_game_check,
-  "output/tables/study2/step4_outcome_game_check.csv"
+
+cat(
+  "\nPrimary model:\n"
 )
 
-write_csv(
-  final_check,
-  "output/tables/study2/step4_final_check.csv"
+cat(
+  " - Pre:  Days -3 to -1\n"
 )
 
-write_csv(
-  final_game_check,
-  "output/tables/study2/step4_final_rows_by_game.csv"
+cat(
+  " - Post: Days +1 to +3\n"
 )
 
-cat("\n✅ DONE — FINAL DATASET READY FOR MODELING\n")
-cat("📁 Main modeling file: data/interim/study2/final_patch_dataset.csv\n")
+cat(
+  " - Day 0 excluded\n"
+)
 
-cat("\n📁 Supporting files:\n")
-cat("   - data/interim/study2/steam_daily_engagement.csv\n")
-cat("   - data/interim/study2/patch_daily_features.csv\n")
-cat("   - data/interim/study2/patch_engagement_outcomes.csv\n")
+cat(
+  " - Outcome: engagement_change_excl_day0\n"
+)
 
-cat("\n📁 Diagnostics:\n")
-cat("   - output/tables/study2/step4_merge_check.csv\n")
-cat("   - output/tables/study2/step4_sentence_length_check.csv\n")
-cat("   - output/tables/study2/step4_window_check.csv\n")
-cat("   - output/tables/study2/step4_outcome_check.csv\n")
-cat("   - output/tables/study2/step4_outcome_game_check.csv\n")
-cat("   - output/tables/study2/step4_final_check.csv\n")
-cat("   - output/tables/study2/step4_final_rows_by_game.csv\n")
+
+cat(
+  "\nDay 0 sensitivity model:\n"
+)
+
+cat(
+  " - Pre:  Days -3 to -1\n"
+)
+
+cat(
+  " - Post: Days 0 to +2\n"
+)
+
+cat(
+  " - Outcome: engagement_change_incl_day0\n"
+)
+
+
+cat(
+  "\nDaily robustness model:\n"
+)
+
+cat(
+  " - One row per actual game-date\n"
+)
+
+cat(
+  " - Day 0 through Day +3 lags created in Step 06\n"
+)
+
+cat(
+  " - Nearby communications can enter simultaneously\n"
+)
+
+
+cat(
+  "\nSaved:\n"
+)
+
+cat(
+  " -",
+  output_file,
+  "\n"
+)
