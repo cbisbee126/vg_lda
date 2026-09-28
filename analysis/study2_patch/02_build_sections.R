@@ -1,298 +1,794 @@
 # ============================================================
 # 02 BUILD PROGRESSION EMPHASIS MEASURES
 # ============================================================
-#
-# PURPOSE
-# -------
-# Measure four progression-emphasis dimensions in qualifying
-# official Steam update communications:
-#   1) Competitive progression
-#   2) Cosmetics / identity
-#   3) Seasonal progression
-#   4) Difficulty / balance
-#
-# UNIT OF ANALYSIS
-# ----------------
-# One game-day update communication.
-#
-# MEASURE
-# -------
-# Text is split into sentences. Sentences <= 20 characters are
-# removed. A sentence may match more than one dimension.
-#
-# Relative emphasis =
-#   characters in matched sentences / total retained characters
-#
-# OUTPUT
-# ------
-# data/interim/study2/patch_levers_sentence.csv
-#
-# The sentence-level working object is kept in memory only to
-# avoid creating an unnecessary large intermediate file.
-# ============================================================
 
 rm(list = ls())
 
-library(tidyverse)
+library(dplyr)
+library(tidyr)
 library(stringr)
 library(readr)
+library(tibble)
 
-dir.create("data/interim/study2", showWarnings = FALSE, recursive = TRUE)
+dir.create(
+  "data/interim/study2",
+  showWarnings = FALSE,
+  recursive = TRUE
+)
+
 
 # ============================================================
-# 1) LOAD QUALIFYING COMMUNICATION DAYS
+# 1. LOAD DATA
 # ============================================================
 
-patches <- read_csv(
-  "data/interim/study2/update_communication_days.csv",
+updates <- read_csv(
+  "data/interim/study2/update_communication_days_clean.csv",
   show_col_types = FALSE
 ) |>
   mutate(
-    event_date = as.Date(event_date),
-    event_id = as.character(update_id),
-    patch_title = as.character(titles),
-    full_text = as.character(combined_text),
-    source_type = "official_steam_update_communication",
-    full_text = str_squish(full_text),
-    patch_title = str_squish(patch_title),
-    char_count = nchar(full_text, type = "chars"),
-    word_count = str_count(full_text, "\\S+"),
-    log_char_count = log1p(char_count)
-  ) |>
-  filter(
-    !is.na(full_text),
-    full_text != "",
-    !is.na(event_id),
-    !is.na(game),
-    !is.na(event_date)
-  ) |>
-  arrange(game, event_date)
-
-cat("\nLoaded update-communication days:", nrow(patches), "\n")
-cat("Games:", n_distinct(patches$game), "\n")
-
-if (nrow(patches |> count(game, event_date) |> filter(n > 1)) > 0) {
-  stop("Duplicate game-day update communications found in Step 02 input.")
-}
-
-# ============================================================
-# 2) LOCKED PROGRESSION DICTIONARIES
-# ============================================================
-
-competitive_pattern <- paste(
-  c(
-    "rank", "ranks", "ranked", "competitive", "mmr", "elo", "sr",
-    "leaderboard", "leaderboards", "matchmaking", "placement", "placements",
-    "division", "divisions", "tier", "tiers", "queue", "queues", "ladder",
-    "promotion", "demotion", "rank reset", "ranked reset"
-  ),
-  collapse = "|"
-)
-
-cosmetic_pattern <- paste(
-  c(
-    "skin", "skins", "cosmetic", "cosmetics", "bundle", "bundles",
-    "store", "shop", "item shop", "emote", "emotes", "spray", "sprays",
-    "mythic", "legendary", "epic", "highlight intro", "victory pose",
-    "weapon charm", "charm", "charms", "souvenir", "player icon",
-    "name card", "voice line", "outfit", "outfits", "appearance",
-    "customization", "customisation", "rarity", "heirloom", "camo",
-    "paint", "paintjob", "decoration"
-  ),
-  collapse = "|"
-)
-
-seasonal_pattern <- paste(
-  c(
-    "event", "events", "battle pass", "season", "seasons", "seasonal",
-    "limited-time", "limited time", "ltm", "challenge", "challenges",
-    "festival", "operation", "pass", "reset", "rank reset", "season reset",
-    "reward track", "milestone", "milestones", "season launch", "new season"
-  ),
-  collapse = "|"
-)
-
-difficulty_pattern <- paste(
-  c(
-    "buff", "buffs", "nerf", "nerfs", "balance", "balanced", "balancing",
-    "rework", "reworks", "tuning", "cooldown", "cooldowns", "damage",
-    "healing", "shield", "armor", "ultimate", "passive", "ability",
-    "abilities", "scaling", "weapon balance", "gameplay", "difficulty",
-    "boss", "enemy", "combat", "fairness", "challenge", "mechanics",
-    "map changes", "hero changes", "adjustment", "adjustments"
-  ),
-  collapse = "|"
-)
-
-# ============================================================
-# 3) SENTENCE-LEVEL CODING
-# ============================================================
-
-sentences <- patches |>
-  mutate(sentence_split = str_split(full_text, "(?<=[.!?])\\s+")) |>
-  unnest(sentence_split) |>
-  transmute(
-    game,
-    event_id,
-    event_date,
-    patch_title,
-    sentence_text = str_squish(sentence_split),
-    sentence_chars = nchar(str_squish(sentence_split), type = "chars")
-  ) |>
-  filter(
-    !is.na(sentence_text),
-    sentence_text != "",
-    sentence_chars > 20
-  ) |>
-  mutate(
-    text_all = str_to_lower(sentence_text),
-    is_competitive = str_detect(text_all, paste0("\\b(", competitive_pattern, ")\\b")),
-    is_cosmetic = str_detect(text_all, paste0("\\b(", cosmetic_pattern, ")\\b")),
-    is_seasonal = str_detect(text_all, paste0("\\b(", seasonal_pattern, ")\\b")),
-    is_difficulty = str_detect(text_all, paste0("\\b(", difficulty_pattern, ")\\b")),
-    sentence_lever_total =
-      as.integer(is_competitive) +
-      as.integer(is_cosmetic) +
-      as.integer(is_seasonal) +
-      as.integer(is_difficulty),
-    comp_chars_sentence = sentence_chars * as.integer(is_competitive),
-    cos_chars_sentence = sentence_chars * as.integer(is_cosmetic),
-    seas_chars_sentence = sentence_chars * as.integer(is_seasonal),
-    diff_chars_sentence = sentence_chars * as.integer(is_difficulty)
+    event_date = as.Date(event_date)
   )
 
-cat("Retained sentences:", nrow(sentences), "\n")
 
-# ============================================================
-# 4) AGGREGATE TO ONE COMMUNICATION DAY
-# ============================================================
+# Keep only each game's free-to-play period
 
-lever_summary <- sentences |>
-  group_by(game, event_id, event_date, patch_title) |>
-  summarise(
-    total_sentence_chars = sum(sentence_chars, na.rm = TRUE),
-    total_sentences = n(),
-    abs_competitive = sum(comp_chars_sentence, na.rm = TRUE),
-    abs_cosmetic = sum(cos_chars_sentence, na.rm = TRUE),
-    abs_seasonal = sum(seas_chars_sentence, na.rm = TRUE),
-    abs_difficulty = sum(diff_chars_sentence, na.rm = TRUE),
-    sentence_comp_hits = sum(is_competitive, na.rm = TRUE),
-    sentence_cos_hits = sum(is_cosmetic, na.rm = TRUE),
-    sentence_seas_hits = sum(is_seasonal, na.rm = TRUE),
-    sentence_diff_hits = sum(is_difficulty, na.rm = TRUE),
-    any_lever_sentences = sum(sentence_lever_total >= 1, na.rm = TRUE),
-    multi_lever_sentences = sum(sentence_lever_total > 1, na.rm = TRUE),
-    .groups = "drop"
-  ) |>
-  mutate(
-    rel_competitive = if_else(
-      total_sentence_chars > 0,
-      abs_competitive / total_sentence_chars,
-      0
-    ),
-    rel_cosmetic = if_else(
-      total_sentence_chars > 0,
-      abs_cosmetic / total_sentence_chars,
-      0
-    ),
-    rel_seasonal = if_else(
-      total_sentence_chars > 0,
-      abs_seasonal / total_sentence_chars,
-      0
-    ),
-    rel_difficulty = if_else(
-      total_sentence_chars > 0,
-      abs_difficulty / total_sentence_chars,
-      0
-    ),
-    avg_sentence_chars = if_else(
-      total_sentences > 0,
-      total_sentence_chars / total_sentences,
-      NA_real_
-    ),
-    total_lever_chars =
-      abs_competitive + abs_cosmetic + abs_seasonal + abs_difficulty,
-    rel_any_lever = if_else(
-      total_sentence_chars > 0,
-      total_lever_chars / total_sentence_chars,
-      0
-    )
-  )
+f2p_dates <- tibble(
+  game = c(
+    "Marvel Rivals",
+    "Apex Legends",
+    "Overwatch 2",
+    "Counter-Strike 2",
+    "War Thunder",
+    "THE FINALS",
+    "Brawlhalla",
+    "Warframe"
+  ),
+  f2p_start = as.Date(c(
+    "2024-12-06",
+    "2019-02-04",
+    "2022-10-04",
+    "2018-12-06",
+    "2013-08-15",
+    "2023-12-07",
+    "2015-11-03",
+    "2013-03-25"
+  ))
+)
 
-patch_metadata <- patches |>
-  select(
-    game, appid, event_id, event_date, patch_title,
-    source_type, full_text, char_count, word_count,
-    log_char_count, n_update_posts, announcement_ids, text_chars
-  ) |>
-  distinct()
-
-patch_levers_sentence <- patch_metadata |>
+updates <- updates |>
   left_join(
-    lever_summary,
-    by = c("game", "event_id", "event_date", "patch_title")
+    f2p_dates,
+    by = "game"
+  ) |>
+  filter(
+    event_date >= f2p_start
+  )
+
+
+# ============================================================
+# 2. COMPETITIVE PROGRESSION
+# ============================================================
+
+competitive_pattern <- regex(
+  paste(
+    c(
+      "\\branked\\b",
+
+      "\\branked (mode|play|queue|match|matches|season|ladder|division|rewards?)\\b",
+
+      "\\bcompetitive (mode|play|queue|rank|season|rewards?|points?|rating)\\b",
+
+      "\\bskill rating\\b",
+      "\\bskill rank\\b",
+
+      "\\brank tiers?\\b",
+      "\\brank divisions?\\b",
+
+      "\\bmmr\\b",
+      "\\belo\\b",
+
+      "\\bleaderboards?\\b",
+
+      "\\bpromotion matches?\\b",
+      "\\bdemotion matches?\\b",
+
+      "\\brank reset\\b",
+      "\\branked reset\\b"
+    ),
+    collapse = "|"
+  ),
+  ignore_case = TRUE
+)
+
+
+# War Thunder also uses "ranked" for vehicle tiers
+
+war_thunder_ranked_exclude <- regex(
+  paste(
+    c(
+      "\\b(high|higher|low|lower|top)[- ]ranked\\b",
+      "\\branked (aircraft|vehicles?|ground vehicles?|airfields?|ships?|tanks?)\\b"
+    ),
+    collapse = "|"
+  ),
+  ignore_case = TRUE
+)
+
+
+# ============================================================
+# 3. COSMETICS / IDENTITY
+# ============================================================
+
+# Terms with a clear cosmetic or identity meaning
+
+cosmetic_pattern <- regex(
+  paste(
+    c(
+      "\\bskins?\\b",
+      "\\bcosmetics?\\b",
+
+      "\\boutfits?\\b",
+      "\\bcostumes?\\b",
+
+      "\\bemotes?\\b",
+      "\\bavatars?\\b",
+      "\\btaunts?\\b",
+
+      "\\bplayer icons?\\b",
+      "\\bname cards?\\b",
+      "\\bnameplates?\\b",
+      "\\bvoice lines?\\b",
+
+      "\\bcharms?\\b",
+
+      "\\bcamouflage\\b",
+      "\\bcamouflages\\b",
+      "\\bpaintjobs?\\b",
+
+      "\\bdecals?\\b",
+      "\\bstickers?\\b",
+
+      "\\bweapon finishes?\\b",
+
+      "\\bhighlight intros?\\b",
+      "\\bvictory poses?\\b",
+
+      "\\bko effects?\\b",
+      "\\bsidekicks?\\b",
+
+      "\\bsouvenirs?\\b",
+      "\\bheirlooms?\\b",
+
+      "\\bsyandanas?\\b",
+      "\\bephemera\\b",
+
+      "\\bmusic kits?\\b"
+    ),
+    collapse = "|"
+  ),
+  ignore_case = TRUE
+)
+
+
+# Ambiguous terms that need cosmetic context
+
+cosmetic_context_pattern <- regex(
+  paste(
+    c(
+      "\\b(player|profile) banners?\\b",
+      "\\bbanner frames?\\b",
+
+      "\\b(character|appearance|cosmetic) customization\\b",
+      "\\bcustomization\\b.{0,30}\\b(character|appearance|cosmetic|skin|outfit)\\b",
+
+      "\\bhelmet skins?\\b",
+      "\\bcosmetic helmets?\\b",
+
+      "\\bholo sprays?\\b",
+      "\\b(exclusive|cosmetic) sprays?\\b",
+      "\\bspray wheel\\b",
+      "\\bsprays?.{0,20}\\b(emotes?|emojis?|rewards?)\\b",
+
+      "\\bcamos?\\b.{0,30}\\b(vehicle|aircraft|tank|ship|weapon|skin|cosmetic|appearance|reward|unlock|purchase)\\b",
+      "\\b(vehicle|aircraft|tank|ship|weapon|skin|cosmetic|appearance|reward|unlock|purchase)\\b.{0,30}\\bcamos?\\b"
+    ),
+    collapse = "|"
+  ),
+  ignore_case = TRUE
+)
+
+
+cosmetic_exclude_pattern <- regex(
+  paste(
+    c(
+      "\\bspray patterns?\\b",
+      "\\bspray control\\b",
+      "\\bspray-and-pray\\b",
+
+      "\\bcharms?\\s+(her way|his way|their way|foes?|enemies?|opponents?)\\b"
+    ),
+    collapse = "|"
+  ),
+  ignore_case = TRUE
+)
+
+
+# ============================================================
+# 4. SEASONAL PROGRESSION
+# ============================================================
+
+# Direct seasonal progression terminology
+
+seasonal_pattern <- regex(
+  paste(
+    c(
+      "\\bseasons?\\b",
+      "\\bseasonal\\b",
+
+      "\\bbattle ?passes?\\b",
+
+      "\\blimited[- ]time\\b",
+
+      "\\breward tracks?\\b",
+
+      "\\bfestivals?\\b",
+
+      "\\bnightwave\\b"
+    ),
+    collapse = "|"
+  ),
+  ignore_case = TRUE
+)
+
+
+# Events and challenges count when tied to
+# progression, rewards, or recurring cycles
+
+seasonal_context_pattern <- regex(
+  paste(
+    c(
+      "\\b(limited[- ]time|seasonal|collection|holiday|in-game) events?\\b",
+
+      "\\banniversary (events?|celebrations?|rewards?)\\b",
+
+      "\\bevents?.{0,30}\\b(rewards?|tracks?|passes?|challenges?|missions?|items?|store|earn|unlock|collect)\\b",
+
+      "\\b(rewards?|tracks?|passes?|challenges?|missions?|earn|unlock|collect).{0,30}\\bevents?\\b",
+
+      "\\b(daily|weekly|seasonal|season|event) challenges?\\b",
+
+      "\\bchallenges?.{0,30}\\b(rewards?|season|battle ?pass|events?)\\b"
+    ),
+    collapse = "|"
+  ),
+  ignore_case = TRUE
+)
+
+
+# Clearly different use of "season"
+
+seasonal_exclude_pattern <- regex(
+  "\\b(esports?|championship|pro league) seasons?\\b",
+  ignore_case = TRUE
+)
+
+
+# ============================================================
+# 5. DIFFICULTY / BALANCE
+# ============================================================
+
+# Explicit gameplay tuning language
+
+difficulty_direct_pattern <- regex(
+  paste(
+    c(
+      "\\bnerfs?\\b",
+      "\\bnerfed\\b",
+      "\\bnerfing\\b",
+
+      "\\bbuffed\\b",
+      "\\b(buff|buffs) (to|for)\\b",
+      "\\b(weapon|hero|character|legend|ability|gameplay) buffs?\\b",
+
+      "\\bbalance changes?\\b",
+      "\\bbalance updates?\\b",
+      "\\bbalance adjustments?\\b",
+
+      "\\b(gameplay|weapon|hero|character|legend|ability) balance\\b",
+
+      "\\b(gameplay|weapon|hero|character|legend|ability|map) reworks?\\b",
+
+      "\\b(gameplay|weapon|hero|character|legend|ability) tuning\\b"
+    ),
+    collapse = "|"
+  ),
+  ignore_case = TRUE
+)
+
+
+# Common gameplay statistics
+
+gameplay_stats <- paste(
+  c(
+    "reload speed",
+    "rate of fire",
+    "fire rate",
+    "movement speed",
+    "attack speed",
+    "ammo capacity",
+    "recover time",
+    "recovery time",
+
+    "damage",
+    "healing",
+    "health",
+    "shield",
+    "armor",
+
+    "ammo",
+
+    "recoil",
+    "spread",
+
+    "reload",
+
+    "cooldown",
+    "cooldowns",
+
+    "stun",
+    "force",
+
+    "knockback"
+  ),
+  collapse = "|"
+)
+
+
+change_terms <- paste(
+  c(
+    "increase", "increased", "increases", "increasing",
+    "decrease", "decreased", "decreases", "decreasing",
+    "reduce", "reduced", "reduces", "reducing",
+    "lower", "lowered", "lowers", "lowering",
+    "raise", "raised", "raises", "raising",
+    "adjust", "adjusted", "adjusts", "adjusting",
+    "change", "changed", "changes", "changing",
+    "modify", "modified", "modifies", "modifying"
+  ),
+  collapse = "|"
+)
+
+
+# Directional gameplay-stat changes
+
+difficulty_stat_pattern <- regex(
+  paste0(
+    "\\b(",
+    change_terms,
+    ")\\b.{0,30}\\b(",
+    gameplay_stats,
+    ")\\b",
+
+    "|",
+
+    "\\b(",
+    gameplay_stats,
+    ")\\b.{0,30}\\b(",
+    change_terms,
+    ")\\b"
+  ),
+  ignore_case = TRUE
+)
+
+
+# Explicit numeric stat changes
+
+number_pattern <- "-?\\d+(?:\\.\\d+)?%?"
+
+difficulty_numeric_pattern <- regex(
+  paste0(
+    "\\b(",
+    gameplay_stats,
+    ")\\b.{0,50}(",
+
+    "from\\s+",
+    number_pattern,
+    ".{0,15}\\s+to\\s+",
+    number_pattern,
+
+    "|",
+
+    number_pattern,
+    "\\s*(?:->|→)\\s*",
+    number_pattern,
+
+    ")"
+  ),
+  ignore_case = TRUE
+)
+
+
+# Explicit gameplay difficulty and scaling language
+
+difficulty_context_pattern <- regex(
+  paste(
+    c(
+      "\\benemy difficulty\\b",
+      "\\bbot difficulty\\b",
+
+      "\\bdifficulty levels?\\b",
+      "\\bdifficulty settings?\\b",
+
+      "\\bhigher difficulty\\b",
+      "\\blower difficulty\\b",
+
+      "\\bdifficulty scaling\\b",
+
+      "\\bdamage scaling\\b",
+      "\\bhealth scaling\\b",
+      "\\benemy scaling\\b"
+    ),
+    collapse = "|"
+  ),
+  ignore_case = TRUE
+)
+
+
+# Recurring non-gameplay uses of otherwise relevant terms
+
+difficulty_exclude_pattern <- regex(
+  paste(
+    c(
+      "\\b(game|server|system|matchmaking) health\\b",
+
+      "\\b(stereo|audio) spread\\b",
+
+      "\\bair force\\b",
+
+      "\\barmor material\\b",
+
+      "\\bammo rack (filling|fill)\\b"
+    ),
+    collapse = "|"
+  ),
+  ignore_case = TRUE
+)
+
+
+# ============================================================
+# 6. SPLIT COMMUNICATIONS INTO TEXT UNITS
+# ============================================================
+
+units <- updates |>
+  select(
+    game,
+    update_id,
+    event_date,
+    clean_text
+  ) |>
+  mutate(
+    sentence = str_split(
+      clean_text,
+      "(?<=[.!?])\\s+|\\n+"
+    )
+  ) |>
+  unnest(sentence) |>
+  mutate(
+    sentence = str_squish(sentence),
+    sentence_chars = nchar(sentence)
+  ) |>
+  filter(
+    sentence != "",
+    !str_detect(
+      sentence,
+      "^[[:punct:][:space:]]+$"
+    )
+  ) |>
+  mutate(
+
+    competitive =
+      str_detect(
+        sentence,
+        competitive_pattern
+      ) &
+      !(
+        game == "War Thunder" &
+          str_detect(
+            sentence,
+            war_thunder_ranked_exclude
+          )
+      ),
+
+    cosmetic =
+      (
+        str_detect(
+          sentence,
+          cosmetic_pattern
+        ) |
+          str_detect(
+            sentence,
+            cosmetic_context_pattern
+          )
+      ) &
+      !str_detect(
+        sentence,
+        cosmetic_exclude_pattern
+      ),
+
+    seasonal =
+      (
+        str_detect(
+          sentence,
+          seasonal_pattern
+        ) |
+          str_detect(
+            sentence,
+            seasonal_context_pattern
+          )
+      ) &
+      !str_detect(
+        sentence,
+        seasonal_exclude_pattern
+      ),
+
+    difficulty =
+      (
+        str_detect(
+          sentence,
+          difficulty_direct_pattern
+        ) |
+          str_detect(
+            sentence,
+            difficulty_stat_pattern
+          ) |
+          str_detect(
+            sentence,
+            difficulty_numeric_pattern
+          ) |
+          str_detect(
+            sentence,
+            difficulty_context_pattern
+          )
+      ) &
+      !str_detect(
+        sentence,
+        difficulty_exclude_pattern
+      ),
+
+    any_theme =
+      competitive |
+      cosmetic |
+      seasonal |
+      difficulty
+  )
+
+
+# ============================================================
+# 7. CALCULATE UPDATE-LEVEL EMPHASIS
+# ============================================================
+
+emphasis <- units |>
+  group_by(
+    game,
+    update_id,
+    event_date
+  ) |>
+  summarise(
+    retained_units = n(),
+
+    retained_chars =
+      sum(sentence_chars),
+
+    rel_competitive =
+      sum(sentence_chars * competitive) /
+      retained_chars,
+
+    rel_cosmetic =
+      sum(sentence_chars * cosmetic) /
+      retained_chars,
+
+    rel_seasonal =
+      sum(sentence_chars * seasonal) /
+      retained_chars,
+
+    rel_difficulty =
+      sum(sentence_chars * difficulty) /
+      retained_chars,
+
+    rel_any_theme =
+      sum(sentence_chars * any_theme) /
+      retained_chars,
+
+    .groups = "drop"
+  )
+
+
+# Add emphasis measures back to update-level data
+
+update_emphasis <- updates |>
+  left_join(
+    emphasis,
+    by = c(
+      "game",
+      "update_id",
+      "event_date"
+    )
   ) |>
   mutate(
     across(
       c(
-        total_sentence_chars, total_sentences,
-        abs_competitive, abs_cosmetic, abs_seasonal, abs_difficulty,
-        sentence_comp_hits, sentence_cos_hits, sentence_seas_hits,
-        sentence_diff_hits, any_lever_sentences, multi_lever_sentences,
-        rel_competitive, rel_cosmetic, rel_seasonal, rel_difficulty,
-        total_lever_chars, rel_any_lever
+        retained_units,
+        retained_chars,
+        rel_competitive,
+        rel_cosmetic,
+        rel_seasonal,
+        rel_difficulty,
+        rel_any_theme
       ),
       ~ replace_na(.x, 0)
-    )
+    ),
+
+    char_count =
+      nchar(clean_text),
+
+    word_count =
+      str_count(
+        clean_text,
+        "\\S+"
+      )
   )
 
+
 # ============================================================
-# 5) CONSOLE DIAGNOSTICS
+# 8. INSPECT
 # ============================================================
 
-cat("\n--- MEAN EMPHASIS ---\n")
-patch_levers_sentence |>
-  summarise(
-    competitive = mean(rel_competitive),
-    cosmetic = mean(rel_cosmetic),
-    seasonal = mean(rel_seasonal),
-    difficulty = mean(rel_difficulty),
-    any_lever = mean(rel_any_lever),
-    zero_lever_days = sum(rel_any_lever == 0),
-    pct_zero_lever_days = mean(rel_any_lever == 0)
-  ) |>
-  print(width = Inf)
+cat("\n--- F2P SAMPLE ---\n")
 
-cat("\n--- GAME BREAKDOWN ---\n")
-patch_levers_sentence |>
+update_emphasis |>
   group_by(game) |>
   summarise(
     updates = n(),
-    mean_comp = mean(rel_competitive),
-    mean_cos = mean(rel_cosmetic),
-    mean_seas = mean(rel_seasonal),
-    mean_diff = mean(rel_difficulty),
-    avg_sentence_chars = mean(avg_sentence_chars, na.rm = TRUE),
+    first_date = min(event_date),
+    last_date = max(event_date),
     .groups = "drop"
   ) |>
-  arrange(desc(updates)) |>
-  print(n = Inf, width = Inf)
+  print(
+    n = Inf,
+    width = Inf
+  )
 
-cat("\n--- SENTENCE OVERLAP ---\n")
-sentences |>
+
+cat("\n--- MEAN EMPHASIS ---\n")
+
+update_emphasis |>
   summarise(
-    pct_any_lever_sentence = mean(sentence_lever_total >= 1),
-    pct_multi_lever_sentence = mean(sentence_lever_total > 1)
+    competitive =
+      mean(rel_competitive),
+
+    cosmetic =
+      mean(rel_cosmetic),
+
+    seasonal =
+      mean(rel_seasonal),
+
+    difficulty =
+      mean(rel_difficulty),
+
+    any_theme =
+      mean(rel_any_theme),
+
+    zero_theme_updates =
+      sum(rel_any_theme == 0)
   ) |>
   print(width = Inf)
 
+
+cat("\n--- NONZERO UPDATES ---\n")
+
+update_emphasis |>
+  summarise(
+    competitive =
+      sum(rel_competitive > 0),
+
+    cosmetic =
+      sum(rel_cosmetic > 0),
+
+    seasonal =
+      sum(rel_seasonal > 0),
+
+    difficulty =
+      sum(rel_difficulty > 0)
+  ) |>
+  print(width = Inf)
+
+
+cat("\n--- EMPHASIS BY GAME ---\n")
+
+update_emphasis |>
+  group_by(game) |>
+  summarise(
+    updates = n(),
+
+    competitive =
+      mean(rel_competitive),
+
+    cosmetic =
+      mean(rel_cosmetic),
+
+    seasonal =
+      mean(rel_seasonal),
+
+    difficulty =
+      mean(rel_difficulty),
+
+    .groups = "drop"
+  ) |>
+  print(
+    n = Inf,
+    width = Inf
+  )
+
+
 # ============================================================
-# 6) SAVE ONE FILE
+# 9. BASIC CHECKS
 # ============================================================
 
-output_file <- "data/interim/study2/patch_levers_sentence.csv"
-write_csv(patch_levers_sentence, output_file)
+stopifnot(
+  nrow(update_emphasis) ==
+    nrow(updates),
 
-cat("\nDONE - Step 02\n")
-cat("Update-communication days:", nrow(patch_levers_sentence), "\n")
-cat("Saved:", output_file, "\n")
+  !anyDuplicated(
+    update_emphasis$update_id
+  ),
+
+  !anyDuplicated(
+    update_emphasis[
+      c(
+        "game",
+        "event_date"
+      )
+    ]
+  ),
+
+  !any(
+    is.na(
+      update_emphasis$clean_text
+    )
+  ),
+
+  all(
+    update_emphasis$rel_competitive >= 0 &
+      update_emphasis$rel_competitive <= 1
+  ),
+
+  all(
+    update_emphasis$rel_cosmetic >= 0 &
+      update_emphasis$rel_cosmetic <= 1
+  ),
+
+  all(
+    update_emphasis$rel_seasonal >= 0 &
+      update_emphasis$rel_seasonal <= 1
+  ),
+
+  all(
+    update_emphasis$rel_difficulty >= 0 &
+      update_emphasis$rel_difficulty <= 1
+  ),
+
+  all(
+    update_emphasis$rel_any_theme >= 0 &
+      update_emphasis$rel_any_theme <= 1
+  )
+)
+
+
+# ============================================================
+# 10. SAVE
+# ============================================================
+
+write_csv(
+  update_emphasis,
+  "data/interim/study2/update_progression_emphasis.csv"
+)

@@ -1,18 +1,6 @@
 # ============================================================
 # 05 STUDY 1 VS STUDY 2 EMPHASIS COMPARISON
 # ============================================================
-#
-# PURPOSE
-# -------
-# Create the descriptive RQ1 comparison between normalized
-# consumer discourse (Study 1) and gaming-firm communication
-# emphasis (Study 2).
-#
-# OUTPUTS
-# -------
-# output/tables/study2/comparison_table.csv
-# output/figures/study2/comparison_chart.png
-# ============================================================
 
 rm(list = ls())
 
@@ -24,14 +12,16 @@ library(ggplot2)
 dir.create("output/tables/study2", showWarnings = FALSE, recursive = TRUE)
 dir.create("output/figures/study2", showWarnings = FALSE, recursive = TRUE)
 
+
 # ============================================================
 # 1) LOAD STUDY 2 COMMUNICATION DATA
 # ============================================================
 
 communications <- read_csv(
-  "data/interim/study2/patch_levers_with_controls.csv",
+  "data/interim/study2/update_progression_emphasis.csv",
   show_col_types = FALSE
 )
+
 
 # ============================================================
 # 2) NORMALIZED STUDY 2 EMPHASIS
@@ -55,9 +45,9 @@ study2_overall_norm <- study2_overall |>
   ) |>
   select(-total)
 
+
 # ============================================================
 # 3) STUDY 1 NORMALIZED CONSUMER VALUES
-# Replace only if the final Study 1 values change.
 # ============================================================
 
 study1_overall_norm <- tibble(
@@ -66,6 +56,7 @@ study1_overall_norm <- tibble(
   seasonal = 0.181,
   difficulty = 0.179
 )
+
 
 # ============================================================
 # 4) COMPARISON TABLE
@@ -84,7 +75,7 @@ comparison_table <- tibble(
     study1_overall_norm$seasonal,
     study1_overall_norm$difficulty
   ),
-  gaming_firm_communication = c(
+  developer_communication = c(
     study2_overall_norm$competitive,
     study2_overall_norm$cosmetic,
     study2_overall_norm$seasonal,
@@ -92,13 +83,13 @@ comparison_table <- tibble(
   )
 ) |>
   mutate(
-    gap_firm_minus_consumer =
-      gaming_firm_communication - consumer_discourse,
-    abs_gap = abs(gap_firm_minus_consumer)
+    difference =
+      developer_communication - consumer_discourse
   )
 
 cat("\n--- STUDY 1 VS STUDY 2 COMPARISON ---\n")
 print(comparison_table, n = Inf, width = Inf)
+
 
 # ============================================================
 # 5) PLOT DATA
@@ -108,10 +99,13 @@ plot_data <- comparison_table |>
   select(
     progression_system,
     consumer_discourse,
-    gaming_firm_communication
+    developer_communication
   ) |>
   pivot_longer(
-    cols = c(consumer_discourse, gaming_firm_communication),
+    cols = c(
+      consumer_discourse,
+      developer_communication
+    ),
     names_to = "source",
     values_to = "weight"
   ) |>
@@ -119,11 +113,14 @@ plot_data <- comparison_table |>
     source = recode(
       source,
       consumer_discourse = "Consumer discourse",
-      gaming_firm_communication = "Gaming-firm communication"
+      developer_communication = "Developer communication"
     ),
     source = factor(
       source,
-      levels = c("Consumer discourse", "Gaming-firm communication")
+      levels = c(
+        "Consumer discourse",
+        "Developer communication"
+      )
     ),
     progression_system = factor(
       progression_system,
@@ -136,13 +133,18 @@ plot_data <- comparison_table |>
     )
   )
 
+
 # ============================================================
-# 6) JOURNAL-FRIENDLY FIGURE
+# 6) FIGURE
 # ============================================================
 
 p <- ggplot(
   plot_data,
-  aes(x = progression_system, y = weight, fill = source)
+  aes(
+    x = progression_system,
+    y = weight,
+    fill = source
+  )
 ) +
   geom_col(
     position = position_dodge(width = 0.78),
@@ -172,12 +174,12 @@ p <- ggplot(
   scale_fill_manual(
     values = c(
       "Consumer discourse" = "grey25",
-      "Gaming-firm communication" = "grey80"
+      "Developer communication" = "grey80"
     )
   ) +
   labs(
     x = NULL,
-    y = "Normalized emphasis",
+    y = "Share of emphasis",
     fill = NULL
   ) +
   theme_minimal(base_size = 12) +
@@ -196,8 +198,9 @@ p <- ggplot(
 
 print(p)
 
+
 # ============================================================
-# 7) SAVE ESSENTIAL OUTPUTS
+# 7) SAVE
 # ============================================================
 
 write_csv(
@@ -213,5 +216,4 @@ ggsave(
   dpi = 300
 )
 
-cat("\nDONE - Step 05\n")
-cat("Saved comparison table and figure.\n")
+cat("\nDONE - STEP 05\n")
