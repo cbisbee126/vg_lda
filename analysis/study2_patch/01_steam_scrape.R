@@ -12,7 +12,6 @@ study_end <- as.Date("2026-09-25")
 
 
 # Games
-
 games <- tibble(
   game = c(
     "Marvel Rivals",
@@ -22,13 +21,23 @@ games <- tibble(
     "War Thunder",
     "THE FINALS",
     "Brawlhalla",
-    "Warframe"
+    "Warframe",
+    "Dota 2",
+    "PUBG: BATTLEGROUNDS",
+    "The First Descendant",
+    "Delta Force",
+    "NARAKA: BLADEPOINT",
+    "Halo Infinite",
+    "Once Human"
   ),
   appid = c(
     2767030, 1172470, 2357570, 730,
-    236390, 2073850, 291550, 230410
+    236390, 2073850, 291550, 230410,
+    570, 578080, 2074920, 2507950,
+    1203220, 1240440, 2139460
   )
 )
+
 
 feeds <- c(
   "steam_community_announcements",
